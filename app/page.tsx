@@ -3,6 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Star, Check, Shield, Zap, BarChart3, Globe, Lock, TrendingUp, ChevronDown, ArrowRight, Twitter, Linkedin, Github } from "lucide-react";
+import dynamic from 'next/dynamic';
+
+// Dynamically import Hero3D with no SSR
+const Hero3D = dynamic(() => import('@/components/Hero3D'), { 
+  ssr: false,
+  loading: () => null 
+});
+
+// Import actual Navbar component
 import { Navbar } from "@/components/Navbar";
 
 const testimonials = [
@@ -136,34 +145,51 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-black text-white overflow-hidden">
+      {/* Background layers */}
       <div className="fixed inset-0 bg-gradient-to-br from-zinc-950 via-black to-zinc-950" style={{ zIndex: 1 }} />
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(212,212,216,0.03),transparent_60%)]" style={{ zIndex: 1 }} />
       <div className="fixed inset-0 opacity-20" style={{ zIndex: 1, backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)', backgroundSize: '50px 50px' }} />
       
+      {/* Hero3D Background - Positioned between background and content */}
+      <Hero3D />
+      
+      {/* Main content */}
       <div className="relative" style={{ zIndex: 10 }}>
         <Navbar />
         
-        <section className="pt-28 sm:pt-36 md:pt-44 pb-16 sm:pb-20 md:pb-24 px-4">
-          <div className={`max-w-5xl mx-auto text-center transition-all duration-500 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
+        {/* Hero Section */}
+        <section className="relative pt-28 sm:pt-36 md:pt-44 pb-16 sm:pb-20 md:pb-24 px-4 min-h-screen flex items-center">
+          <div className={`max-w-5xl mx-auto text-center w-full transition-all duration-500 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
             <div className="inline-block mb-4 px-4 py-1.5 bg-zinc-800/30 backdrop-blur-sm border border-zinc-700/50 rounded-full animate-fade-in-up hover:border-zinc-600/60 transition-all duration-300">
               <span className="text-zinc-400 text-xs sm:text-sm font-medium tracking-wide uppercase">
-                Institutional Execution. Retail Access.
+                AI-Powered Precision. Retail Access.
               </span>
             </div>
             
-            <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-5 sm:mb-6 leading-[1.1] tracking-tight px-4">
-              <span className="inline-block animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                Execute Like a
-              </span>
-              <span className="block mt-2 bg-gradient-to-r from-zinc-100 via-white to-zinc-400 bg-clip-text text-transparent animate-fade-in-up" style={{ animationDelay: '200ms' }}>
-                Tier-1 Desk
-              </span>
-            </h1>
+          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-bold mb-5 sm:mb-6 leading-[1.1] tracking-tight px-4">
+  <span
+    className="inline-block animate-fade-in-up"
+    style={{ animationDelay: "100ms" }}
+  >
+    Experience AI-Powered
+  </span>
+  <span
+    className="block mt-2 bg-gradient-to-r from-zinc-100 via-white to-zinc-400 bg-clip-text text-transparent animate-fade-in-up"
+    style={{ animationDelay: "200ms" }}
+  >
+   Online Trading
+  </span>
+</h1>
+
             
-            <p className="text-sm sm:text-base md:text-lg text-zinc-400 mb-6 sm:mb-8 max-w-2xl mx-auto leading-relaxed animate-fade-in-up px-4" style={{ animationDelay: '300ms' }}>
-              Sub-millisecond fills. Predictive AI alpha. Multi-venue aggregation. 
-              The infrastructure hedge funds use, now available to you.
-            </p>
+            <p
+  className="text-sm sm:text-base md:text-lg text-zinc-400 mb-6 sm:mb-8 max-w-2xl mx-auto leading-relaxed animate-fade-in-up px-4"
+  style={{ animationDelay: "300ms" }}
+>
+  AI-driven execution. Real-time intelligence. Institutional-grade precision.  
+  The power of advanced trading technology — redefined for modern investors.
+</p>
+
             
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 mb-6 animate-fade-in-up px-4" style={{ animationDelay: '400ms' }}>
               <Link 
@@ -199,6 +225,7 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* Stats Grid */}
         <div className="max-w-7xl mx-auto px-4 pb-20 sm:pb-24 space-y-8 sm:space-y-12">
           <div className="grid grid-cols-6 sm:grid-cols-12 gap-3 sm:gap-4">
             <Card delay={0} className="col-span-6 sm:col-span-4 text-left">
@@ -267,6 +294,7 @@ export default function HomePage() {
             </LightCard>
           </div>
 
+          {/* Market Data Section */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
             <Card className="lg:col-span-8">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4 mb-4 sm:mb-5">
@@ -332,6 +360,7 @@ export default function HomePage() {
             </div>
           </div>
 
+          {/* Testimonials */}
           <Card>
             <h2 className="text-xl sm:text-2xl md:text-3xl font-bold text-white text-center mb-6 sm:mb-8">
               Trusted by Institutional Traders
@@ -377,6 +406,7 @@ export default function HomePage() {
             </div>
           </Card>
 
+          {/* Pricing Section */}
           <div className="text-center mb-8 sm:mb-12 pt-8 sm:pt-12">
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-white mb-3 sm:mb-4 px-4">
               Scale From Zero to Institutional
@@ -441,6 +471,7 @@ export default function HomePage() {
             ))}
           </div>
 
+          {/* Footer */}
           <Card className="mt-12 sm:mt-16 md:mt-20">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-8 mb-6 sm:mb-8">
               {[
@@ -533,6 +564,7 @@ export default function HomePage() {
           }
           to {
             opacity: 1;
+            transform: translateY(0);
           }
         }
         

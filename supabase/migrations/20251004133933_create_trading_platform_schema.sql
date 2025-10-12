@@ -99,22 +99,26 @@ CREATE TABLE IF NOT EXISTS profiles (
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
 CREATE POLICY "Users can view own profile"
   ON profiles FOR SELECT
   TO authenticated
   USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile"
   ON profiles FOR UPDATE
   TO authenticated
   USING (auth.uid() = id)
   WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can insert own profile" ON profiles;
 CREATE POLICY "Users can insert own profile"
   ON profiles FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Admins can view all profiles" ON profiles;
 CREATE POLICY "Admins can view all profiles"
   ON profiles FOR SELECT
   TO authenticated
@@ -138,11 +142,13 @@ CREATE TABLE IF NOT EXISTS balances (
 
 ALTER TABLE balances ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own balance" ON balances;
 CREATE POLICY "Users can view own balance"
   ON balances FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all balances" ON balances;
 CREATE POLICY "Admins can view all balances"
   ON balances FOR SELECT
   TO authenticated
@@ -171,22 +177,26 @@ CREATE TABLE IF NOT EXISTS trades (
 
 ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own trades" ON trades;
 CREATE POLICY "Users can view own trades"
   ON trades FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own trades" ON trades;
 CREATE POLICY "Users can insert own trades"
   ON trades FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own trades" ON trades;
 CREATE POLICY "Users can update own trades"
   ON trades FOR UPDATE
   TO authenticated
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all trades" ON trades;
 CREATE POLICY "Admins can view all trades"
   ON trades FOR SELECT
   TO authenticated
@@ -213,16 +223,19 @@ CREATE TABLE IF NOT EXISTS deposits (
 
 ALTER TABLE deposits ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own deposits" ON deposits;
 CREATE POLICY "Users can view own deposits"
   ON deposits FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create deposits" ON deposits;
 CREATE POLICY "Users can create deposits"
   ON deposits FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all deposits" ON deposits;
 CREATE POLICY "Admins can view all deposits"
   ON deposits FOR SELECT
   TO authenticated
@@ -234,6 +247,7 @@ CREATE POLICY "Admins can view all deposits"
     )
   );
 
+DROP POLICY IF EXISTS "Admins can update deposits" ON deposits;
 CREATE POLICY "Admins can update deposits"
   ON deposits FOR UPDATE
   TO authenticated
@@ -267,16 +281,19 @@ CREATE TABLE IF NOT EXISTS withdrawals (
 
 ALTER TABLE withdrawals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own withdrawals" ON withdrawals;
 CREATE POLICY "Users can view own withdrawals"
   ON withdrawals FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create withdrawals" ON withdrawals;
 CREATE POLICY "Users can create withdrawals"
   ON withdrawals FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all withdrawals" ON withdrawals;
 CREATE POLICY "Admins can view all withdrawals"
   ON withdrawals FOR SELECT
   TO authenticated
@@ -288,6 +305,7 @@ CREATE POLICY "Admins can view all withdrawals"
     )
   );
 
+DROP POLICY IF EXISTS "Admins can update withdrawals" ON withdrawals;
 CREATE POLICY "Admins can update withdrawals"
   ON withdrawals FOR UPDATE
   TO authenticated
@@ -320,16 +338,19 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 
 ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own tickets" ON support_tickets;
 CREATE POLICY "Users can view own tickets"
   ON support_tickets FOR SELECT
   TO authenticated
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create tickets" ON support_tickets;
 CREATE POLICY "Users can create tickets"
   ON support_tickets FOR INSERT
   TO authenticated
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Admins can view all tickets" ON support_tickets;
 CREATE POLICY "Admins can view all tickets"
   ON support_tickets FOR SELECT
   TO authenticated
@@ -341,6 +362,7 @@ CREATE POLICY "Admins can view all tickets"
     )
   );
 
+DROP POLICY IF EXISTS "Admins can update tickets" ON support_tickets;
 CREATE POLICY "Admins can update tickets"
   ON support_tickets FOR UPDATE
   TO authenticated
@@ -371,6 +393,7 @@ CREATE TABLE IF NOT EXISTS ticket_replies (
 
 ALTER TABLE ticket_replies ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view replies to own tickets" ON ticket_replies;
 CREATE POLICY "Users can view replies to own tickets"
   ON ticket_replies FOR SELECT
   TO authenticated
@@ -382,6 +405,7 @@ CREATE POLICY "Users can view replies to own tickets"
     )
   );
 
+DROP POLICY IF EXISTS "Users can reply to own tickets" ON ticket_replies;
 CREATE POLICY "Users can reply to own tickets"
   ON ticket_replies FOR INSERT
   TO authenticated
@@ -394,6 +418,7 @@ CREATE POLICY "Users can reply to own tickets"
     AND auth.uid() = user_id
   );
 
+DROP POLICY IF EXISTS "Admins can view all replies" ON ticket_replies;
 CREATE POLICY "Admins can view all replies"
   ON ticket_replies FOR SELECT
   TO authenticated
@@ -405,6 +430,7 @@ CREATE POLICY "Admins can view all replies"
     )
   );
 
+DROP POLICY IF EXISTS "Admins can create replies" ON ticket_replies;
 CREATE POLICY "Admins can create replies"
   ON ticket_replies FOR INSERT
   TO authenticated
@@ -456,7 +482,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$
 BEGIN
   INSERT INTO public.profiles (id, full_name, is_admin, created_at, updated_at)
-  VALUES (new.id, NULL, false, now(), now());
+  VALUES (new.id, new.raw_user_meta_data->>'full_name', false, now(), now());
   RETURN new;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

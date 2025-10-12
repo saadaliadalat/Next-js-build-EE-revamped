@@ -1,768 +1,907 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { Navbar } from '@/components/Navbar';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { useToast } from '@/hooks/use-toast';
-import { supabase } from '@/lib/supabase';
-import { Users, Wallet, Download, MessageSquare, Check, X, TrendingUp, Shield, Zap } from 'lucide-react';
-import { format } from 'date-fns';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useCallback } from 'react';
+import { 
+  BarChart3, Settings, Users, Wallet, TrendingUp, Shield, MessageSquare, 
+  FileText, Globe, Lock, Bell, CreditCard, Activity, Zap, Edit2, Trash2, 
+  Plus, Eye, EyeOff, Search, Filter, Download, Upload, CheckCircle, AlertCircle,
+  DollarSign, ArrowUpRight, ArrowDownLeft, Clock, Calendar, MoreVertical,
+  PieChart, LineChart, Award, Target, Sliders, Database
+} from 'lucide-react';
 
-const GlassCard = ({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay: delay / 1000 }}
-    className={`relative group ${className}`}
-  >
-    <div className="absolute inset-0 bg-gradient-to-br from-white/[0.05] via-white/[0.03] to-transparent rounded-xl backdrop-blur-md border border-white/10" />
-    <div className="relative p-4 md:p-6 rounded-xl transition-all duration-300 group-hover:shadow-lg group-hover:shadow-white/5">
-      {children}
-    </div>
-  </motion.div>
-);
+export default function AdminCMS() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedRows, setSelectedRows] = useState(new Set());
 
-const LightCard = ({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.4, delay: delay / 1000 }}
-    className={`relative group ${className}`}
-  >
-    <div className="absolute inset-0 bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent rounded-xl backdrop-blur-xl border border-white/20" />
-    <div className="relative bg-transparent p-4 md:p-6 rounded-xl transition-all duration-300 group-hover:border-white/30 group-hover:-translate-y-0.5">
-      {children}
-    </div>
-  </motion.div>
-);
+  // Dashboard Stats
+  const stats = [
+    { label: 'Total Users', value: '89', change: '+12.5%', icon: Users, color: 'bg-blue-500' },
+    { label: 'Active Traders', value: '45', change: '+8.2%', icon: TrendingUp, color: 'bg-emerald-500' },
+    { label: 'Total Volume', value: '$4K', change: '+23.1%', icon: DollarSign, color: 'bg-purple-500' },
+    { label: 'Pending Requests', value: '4', change: '-2.1%', icon: Clock, color: 'bg-orange-500' },
+  ];
 
-export default function AdminPage() {
-  const { user, profile, loading: authLoading } = useAuth();
-  const router = useRouter();
-  const { toast } = useToast();
-  const [isVisible, setIsVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const menuItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
+    { id: 'users', label: 'User Management', icon: Users },
+    { id: 'traders', label: 'Traders & Accounts', icon: Award },
+    { id: 'transactions', label: 'Transactions', icon: CreditCard },
+    { id: 'assets', label: 'Trading Assets', icon: TrendingUp },
+    { id: 'deposits', label: 'Deposits & Withdrawals', icon: Wallet },
+    { id: 'support', label: 'Support Tickets', icon: MessageSquare },
+    { id: 'content', label: 'Content Management', icon: FileText },
+    { id: 'settings', label: 'Platform Settings', icon: Settings },
+    { id: 'security', label: 'Security & Compliance', icon: Shield },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { id: 'email', label: 'Email Notifications', icon: Bell },
+  ];
 
-  const [users, setUsers] = useState<any[]>([]);
-  const [deposits, setDeposits] = useState<any[]>([]);
-  const [withdrawals, setWithdrawals] = useState<any[]>([]);
-  const [tickets, setTickets] = useState<any[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<any>(null);
-  const [ticketReplies, setTicketReplies] = useState<any[]>([]);
-  const [replyMessage, setReplyMessage] = useState('');
-
-  // Step 1: Wait for auth to load
-  useEffect(() => {
-    setTimeout(() => setIsVisible(true), 100);
-  }, []);
-
-  // Step 2: Check permissions after auth loads
-  useEffect(() => {
-    // Still loading auth
-    if (authLoading) {
-      return;
-    }
-
-    // Not logged in
-    if (!user) {
-      toast({
-        title: 'Access denied',
-        description: 'You must be logged in.',
-        variant: 'destructive',
-      });
-      router.push('/auth/login');
-      return;
-    }
-
-    // Profile not loaded yet
-    if (!profile) {
-      return;
-    }
-
-    // Not admin
-    if (!profile.is_admin) {
-      toast({
-        title: 'Access denied',
-        description: 'You do not have permission to access this page.',
-        variant: 'destructive',
-      });
-      router.push('/dashboard');
-      return;
-    }
-
-    // If we reach here: user is authenticated and IS admin
-  }, [authLoading, user, profile, router, toast]);
-
-  // Step 3: Fetch data only if user is admin
-  useEffect(() => {
-    if (user && profile?.is_admin) {
-      fetchAdminData();
-    }
-  }, [user, profile]);
-
-  const fetchAdminData = async () => {
-    try {
-      const [usersRes, depositsRes, withdrawalsRes, ticketsRes] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, full_name, is_admin, created_at')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('deposits')
-          .select('*, profiles(full_name)')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('withdrawals')
-          .select('*, profiles(full_name)')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('support_tickets')
-          .select('*, profiles(full_name)')
-          .order('created_at', { ascending: false }),
-      ]);
-
-      setUsers(usersRes.data || []);
-      setDeposits(depositsRes.data || []);
-      setWithdrawals(withdrawalsRes.data || []);
-      setTickets(ticketsRes.data || []);
-    } catch (error) {
-      console.error('Error fetching admin data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load admin data.',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const handleVerifyDeposit = async (depositId: string, status: 'approved' | 'rejected', userId: string, amount: number) => {
-    setLoading(true);
-
-    try {
-      const { error: depositError } = await supabase
-        .from('deposits')
-        .update({
-          status,
-          verified_at: new Date().toISOString(),
-          verified_by: user?.id,
-        })
-        .eq('id', depositId);
-
-      if (depositError) throw depositError;
-
-      if (status === 'approved') {
-        const { data: balanceData } = await supabase
-          .from('balances')
-          .select('amount')
-          .eq('user_id', userId)
-          .eq('currency', 'USD')
-          .maybeSingle();
-
-        const currentBalance = balanceData?.amount || 0;
-        const newBalance = currentBalance + amount;
-
-        const { error: balanceError } = await supabase
-          .from('balances')
-          .update({ amount: newBalance })
-          .eq('user_id', userId)
-          .eq('currency', 'USD');
-
-        if (balanceError) throw balanceError;
-      }
-
-      toast({
-        title: 'Success',
-        description: `Deposit ${status}.`,
-      });
-
-      fetchAdminData();
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to process deposit.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleProcessWithdrawal = async (
-    withdrawalId: string,
-    status: 'approved' | 'rejected',
-    userId: string,
-    amount: number
-  ) => {
-    setLoading(true);
-
-    try {
-      const { error: withdrawalError } = await supabase
-        .from('withdrawals')
-        .update({
-          status,
-          processed_at: new Date().toISOString(),
-          processed_by: user?.id,
-        })
-        .eq('id', withdrawalId);
-
-      if (withdrawalError) throw withdrawalError;
-
-      if (status === 'approved') {
-        const { data: balanceData } = await supabase
-          .from('balances')
-          .select('amount')
-          .eq('user_id', userId)
-          .eq('currency', 'USD')
-          .maybeSingle();
-
-        const currentBalance = balanceData?.amount || 0;
-        const newBalance = currentBalance - amount;
-
-        const { error: balanceError } = await supabase
-          .from('balances')
-          .update({ amount: newBalance })
-          .eq('user_id', userId)
-          .eq('currency', 'USD');
-
-        if (balanceError) throw balanceError;
-      }
-
-      toast({
-        title: 'Success',
-        description: `Withdrawal ${status}.`,
-      });
-
-      fetchAdminData();
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to process withdrawal.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleViewTicket = async (ticket: any) => {
-    setSelectedTicket(ticket);
-
-    try {
-      const { data, error } = await supabase
-        .from('ticket_replies')
-        .select('*, profiles(full_name)')
-        .eq('ticket_id', ticket.id)
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-      setTicketReplies(data || []);
-    } catch (error) {
-      console.error('Error fetching ticket replies:', error);
-    }
-  };
-
-  const handleReplyTicket = async () => {
-    if (!replyMessage.trim() || !selectedTicket) return;
-
-    setLoading(true);
-
-    try {
-      const { error } = await supabase.from('ticket_replies').insert({
-        ticket_id: selectedTicket.id,
-        user_id: user?.id,
-        message: replyMessage,
-        is_admin: true,
-      });
-
-      if (error) throw error;
-
-      toast({
-        title: 'Reply sent',
-        description: 'Your reply has been sent to the user.',
-      });
-
-      setReplyMessage('');
-      handleViewTicket(selectedTicket);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send reply.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCloseTicket = async (ticketId: string) => {
-    setLoading(true);
-
-    try {
-      const { error } = await supabase
-        .from('support_tickets')
-        .update({ status: 'closed', updated_at: new Date().toISOString() })
-        .eq('id', ticketId);
-
-      if (error) throw error;
-
-      toast({
-        title: 'Ticket closed',
-        description: 'The ticket has been marked as closed.',
-      });
-
-      fetchAdminData();
-      setSelectedTicket(null);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to close ticket.',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-black to-zinc-950 flex items-center justify-center text-zinc-400">
-        <motion.div
-          animate={{ opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
-          Loading...
-        </motion.div>
+  // Render Dashboard
+  const renderDashboard = () => (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((stat, i) => (
+          <div key={i} className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6 hover:border-white/20 transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-zinc-400 text-sm font-medium">{stat.label}</h3>
+              <div className={`p-2 ${stat.color} rounded-lg bg-opacity-10`}>
+                <stat.icon className="w-5 h-5 text-white" />
+              </div>
+            </div>
+            <div className="text-3xl font-bold text-white mb-2">{stat.value}</div>
+            <div className="text-xs text-emerald-400 font-semibold">{stat.change}</div>
+          </div>
+        ))}
       </div>
-    );
-  }
 
-  if (!user || !profile?.is_admin) {
-    return null;
-  }
+      {/* Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <LineChart className="w-5 h-5" />
+            Trading Volume (7 days)
+          </h3>
+          <div className="h-64 bg-white/[0.02] border border-white/5 rounded flex items-center justify-center text-zinc-500">
+            Chart Visualization Area
+          </div>
+        </div>
 
-  const pendingDeposits = deposits.filter((d) => d.status === 'pending');
-  const pendingWithdrawals = withdrawals.filter((w) => w.status === 'pending');
-  const openTickets = tickets.filter((t) => t.status === 'open');
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <PieChart className="w-5 h-5" />
+            User Distribution
+          </h3>
+          <div className="h-64 bg-white/[0.02] border border-white/5 rounded flex items-center justify-center text-zinc-500">
+            Chart Visualization Area
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity */}
+      <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Recent Activity</h3>
+        <div className="space-y-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded hover:bg-white/[0.05] transition">
+              <div className="flex items-center gap-3">
+                <Activity className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm text-zinc-300">User activity #{i}</span>
+              </div>
+              <span className="text-xs text-zinc-500">{i * 5} min ago</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render User Management
+  const renderUsers = () => (
+    <div className="space-y-4">
+      <div className="flex gap-4 mb-6">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-500" />
+          <input
+            type="text"
+            placeholder="Search users..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-white placeholder:text-zinc-500 focus:border-emerald-500/50 outline-none"
+          />
+        </div>
+        <button className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all flex items-center gap-2">
+          <Plus className="w-4 h-4" />
+          Add User
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">
+                <input type="checkbox" className="w-4 h-4" />
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Username</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Email</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">KYC</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Balance</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Joined</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3, 4, 5].map((i) => (
+              <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition">
+                <td className="px-4 py-3"><input type="checkbox" className="w-4 h-4" /></td>
+                <td className="px-4 py-3 text-sm text-white">User {i}</td>
+                <td className="px-4 py-3 text-sm text-zinc-400">user{i}@example.com</td>
+                <td className="px-4 py-3 text-sm">
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${i % 2 === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                    {i % 2 === 0 ? 'Active' : 'Pending'}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${i % 3 === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {i % 3 === 0 ? 'Verified' : 'Pending'}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-white font-semibold">${(i * 1500).toLocaleString()}</td>
+                <td className="px-4 py-3 text-sm text-zinc-400">Dec {i}, 2024</td>
+                <td className="px-4 py-3 text-sm">
+                  <div className="flex gap-2">
+                    <button className="p-1 hover:bg-white/10 rounded transition" title="Edit">
+                      <Edit2 className="w-4 h-4 text-blue-400" />
+                    </button>
+                    <button className="p-1 hover:bg-white/10 rounded transition" title="Delete">
+                      <Trash2 className="w-4 h-4 text-red-400" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Render Traders
+  const renderTraders = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Total Traders</p>
+              <p className="text-2xl font-bold text-white">88</p>
+            </div>
+            <Award className="w-8 h-8 text-emerald-400 opacity-50" />
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Avg Win Rate</p>
+              <p className="text-2xl font-bold text-white">58.3%</p>
+            </div>
+            <Target className="w-8 h-8 text-purple-400 opacity-50" />
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Total Trades</p>
+              <p className="text-2xl font-bold text-white">124</p>
+            </div>
+            <Activity className="w-8 h-8 text-blue-400 opacity-50" />
+          </div>
+        </div>
+      </div>
+
+      <button className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all flex items-center gap-2 mb-4">
+        <Plus className="w-4 h-4" />
+        Create Trader Account
+      </button>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Trader ID</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Account Balance</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Win Rate</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Total Trades</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3].map((i) => (
+              <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition">
+                <td className="px-4 py-3 text-sm text-white font-mono">TR{String(i).padStart(5, '0')}</td>
+                <td className="px-4 py-3 text-sm text-white">Trader Name {i}</td>
+                <td className="px-4 py-3 text-sm text-emerald-400 font-semibold">${(i * 25000).toLocaleString()}</td>
+                <td className="px-4 py-3 text-sm text-white">{55 + i}%</td>
+                <td className="px-4 py-3 text-sm text-zinc-400">{i * 450}</td>
+                <td className="px-4 py-3 text-sm">
+                  <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400">Active</span>
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  <button className="p-1 hover:bg-white/10 rounded transition">
+                    <MoreVertical className="w-4 h-4 text-zinc-400" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Render Transactions
+  const renderTransactions = () => (
+    <div className="space-y-4">
+      <div className="flex gap-4 mb-6">
+        <select className="px-4 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-white outline-none focus:border-emerald-500/50">
+          <option>All Types</option>
+          <option>Deposits</option>
+          <option>Withdrawals</option>
+          <option>Trading</option>
+        </select>
+        <button className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-blue-400 font-medium transition-all flex items-center gap-2">
+          <Download className="w-4 h-4" />
+          Export
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Transaction ID</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Type</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">User</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Amount</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3, 4].map((i) => (
+              <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition">
+                <td className="px-4 py-3 text-sm text-white font-mono">TXN{String(i * 10025).padStart(7, '0')}</td>
+                <td className="px-4 py-3 text-sm flex items-center gap-2">
+                  {i % 2 === 0 ? <ArrowDownLeft className="w-4 h-4 text-red-400" /> : <ArrowUpRight className="w-4 h-4 text-emerald-400" />}
+                  <span className="text-white">{i % 2 === 0 ? 'Withdrawal' : 'Deposit'}</span>
+                </td>
+                <td className="px-4 py-3 text-sm text-zinc-400">User {i}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-white">${(i * 5000).toLocaleString()}</td>
+                <td className="px-4 py-3 text-sm">
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${i % 3 === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                    {i % 3 === 0 ? 'Completed' : 'Pending'}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-zinc-400">Dec {i}, 2024</td>
+                <td className="px-4 py-3 text-sm">
+                  <button className="p-1 hover:bg-white/10 rounded transition">
+                    <Eye className="w-4 h-4 text-zinc-400" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Render Trading Assets
+  const renderAssets = () => (
+    <div className="space-y-4">
+      <button className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all flex items-center gap-2 mb-4">
+        <Plus className="w-4 h-4" />
+        Add Asset
+      </button>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {['Forex', 'Crypto', 'Stocks', 'Commodities', 'Indices', 'ETFs'].map((asset, i) => (
+          <div key={i} className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4 hover:border-white/20 transition-all">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold">{asset}</h3>
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div className="space-y-2 text-sm mb-4">
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Enabled:</span>
+                <span className="text-white font-semibold">Yes</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Pairs:</span>
+                <span className="text-white font-semibold">{i * 12 + 8}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-zinc-400">Volume:</span>
+                <span className="text-white font-semibold">${(i * 2.5)}M</span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button className="flex-1 px-2 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded text-blue-400 text-xs font-medium transition-all">
+                <Edit2 className="w-3 h-3 inline mr-1" />
+                Edit
+              </button>
+              <button className="flex-1 px-2 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 text-xs font-medium transition-all">
+                Disable
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Render Deposits & Withdrawals
+  const renderDepositsWithdrawals = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Total Deposits</p>
+              <p className="text-2xl font-bold text-emerald-400">$2.5k</p>
+            </div>
+            <ArrowDownLeft className="w-8 h-8 text-emerald-400 opacity-50" />
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Total Withdrawals</p>
+              <p className="text-2xl font-bold text-red-400">$1.8k</p>
+            </div>
+            <ArrowUpRight className="w-8 h-8 text-red-400 opacity-50" />
+          </div>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-zinc-400 text-sm mb-2">Pending Requests</p>
+              <p className="text-2xl font-bold text-yellow-400">18</p>
+            </div>
+            <Clock className="w-8 h-8 text-yellow-400 opacity-50" />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4 mb-6">
+        <h3 className="text-white font-semibold mb-4">Pending Requests</h3>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded hover:bg-white/[0.05] transition">
+              <div className="flex-1">
+                <p className="text-white font-semibold">User {i} - ${(i * 2000).toLocaleString()}</p>
+                <p className="text-xs text-zinc-500">Deposit • Dec {i}, 2024</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="px-3 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded text-emerald-400 text-xs font-medium transition-all">
+                  <CheckCircle className="w-3 h-3 inline mr-1" />
+                  Approve
+                </button>
+                <button className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded text-red-400 text-xs font-medium transition-all">
+                  Reject
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <h3 className="text-white font-semibold mb-4">All Transactions</h3>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-white/10">
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Transaction ID</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">User</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Type</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Amount</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Payment Method</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-zinc-400">Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[1, 2, 3, 4].map((i) => (
+              <tr key={i} className="border-b border-white/5 hover:bg-white/[0.02] transition">
+                <td className="px-4 py-3 text-sm text-white font-mono">DEP{String(i).padStart(6, '0')}</td>
+                <td className="px-4 py-3 text-sm text-zinc-400">User {i}</td>
+                <td className="px-4 py-3 text-sm text-emerald-400">{i % 2 === 0 ? 'Withdrawal' : 'Deposit'}</td>
+                <td className="px-4 py-3 text-sm text-white font-semibold">${(i * 3000).toLocaleString()}</td>
+                <td className="px-4 py-3 text-sm text-zinc-400">{['Bank Transfer', 'Crypto', 'Card'][i % 3]}</td>
+                <td className="px-4 py-3 text-sm">
+                  <span className={`px-2 py-1 rounded-full text-xs font-semibold ${i % 2 === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                    {i % 2 === 0 ? 'Completed' : 'Pending'}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-zinc-400">Dec {i}, 2024</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  // Render Support
+  const renderSupport = () => (
+    <div className="space-y-4">
+      <div className="flex gap-4 mb-6">
+        <select className="px-4 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-white outline-none focus:border-emerald-500/50">
+          <option>All Status</option>
+          <option>Open</option>
+          <option>In Progress</option>
+          <option>Resolved</option>
+          <option>Closed</option>
+        </select>
+        <select className="px-4 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-white outline-none focus:border-emerald-500/50">
+          <option>All Priority</option>
+          <option>Low</option>
+          <option>Medium</option>
+          <option>High</option>
+          <option>Urgent</option>
+        </select>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <p className="text-zinc-400 text-xs mb-1">Open Tickets</p>
+          <p className="text-2xl font-bold text-orange-400">24</p>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <p className="text-zinc-400 text-xs mb-1">In Progress</p>
+          <p className="text-2xl font-bold text-blue-400">12</p>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <p className="text-zinc-400 text-xs mb-1">Resolved</p>
+          <p className="text-2xl font-bold text-emerald-400">156</p>
+        </div>
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4">
+          <p className="text-zinc-400 text-xs mb-1">Avg Response</p>
+          <p className="text-2xl font-bold text-purple-400">2.5h</p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4 hover:border-white/20 transition-all cursor-pointer">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-2">
+                  <h3 className="text-white font-semibold">Ticket #{1000 + i}</h3>
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${['bg-orange-500/20 text-orange-400', 'bg-emerald-500/20 text-emerald-400', 'bg-blue-500/20 text-blue-400', 'bg-purple-500/20 text-purple-400', 'bg-red-500/20 text-red-400'][i % 5]}`}>
+                    {['Open', 'In Progress', 'Resolved', 'Pending', 'Urgent'][i % 5]}
+                  </span>
+                </div>
+                <p className="text-white mb-1">Trading platform issue - {['Cannot withdraw', 'Login problem', 'Balance error', 'Trade execution', 'Account locked'][i % 5]}</p>
+                <p className="text-sm text-zinc-400 mb-2">User {i} • {['High', 'Medium', 'Low', 'Urgent', 'Medium'][i % 5]} Priority</p>
+                <p className="text-xs text-zinc-500">Dec {i}, 2024 • Last reply 2 hours ago</p>
+              </div>
+              <button className="p-2 hover:bg-white/10 rounded transition">
+                <MoreVertical className="w-4 h-4 text-zinc-400" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Render Content Management
+  const renderContent = () => (
+    <div className="space-y-4">
+      <div className="flex gap-4 mb-6">
+        <button className="px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all flex items-center gap-2">
+          <Plus className="w-4 h-4" />
+          Add Content
+        </button>
+        <button className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 rounded-lg text-blue-400 font-medium transition-all flex items-center gap-2">
+          <Upload className="w-4 h-4" />
+          Upload Media
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {['Homepage Banner', 'Blog Post', 'FAQ Section', 'Tutorial Video', 'Terms & Conditions'].map((content, i) => (
+          <div key={i} className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-4 hover:border-white/20 transition-all">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 flex-1">
+                <FileText className="w-6 h-6 text-blue-400" />
+                <div className="flex-1">
+                  <h3 className="text-white font-semibold">{content}</h3>
+                  <p className="text-xs text-zinc-500">Last updated: Dec {i + 1}, 2024</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${i % 2 === 0 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                  {i % 2 === 0 ? 'Published' : 'Draft'}
+                </span>
+                <button className="p-1 hover:bg-white/10 rounded transition">
+                  <Edit2 className="w-4 h-4 text-blue-400" />
+                </button>
+                <button className="p-1 hover:bg-white/10 rounded transition">
+                  <Trash2 className="w-4 h-4 text-red-400" />
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Render Settings
+  const renderSettings = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* General Settings */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Globe className="w-5 h-5" />
+            General Settings
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Platform Name</label>
+              <input type="text" defaultValue="TradePro" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Support Email</label>
+              <input type="email" defaultValue="support@tradepro.com" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Maintenance Mode</label>
+              <select className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50">
+                <option>Off</option>
+                <option>On</option>
+              </select>
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Trading Settings */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" />
+            Trading Settings
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Min Trade Amount (USD)</label>
+              <input type="number" defaultValue="10" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Max Trade Amount (USD)</label>
+              <input type="number" defaultValue="100000" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Default Leverage</label>
+              <input type="number" defaultValue="50" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Commission Settings */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <DollarSign className="w-5 h-5" />
+            Commission Settings
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Trading Commission %</label>
+              <input type="number" step="0.1" defaultValue="0.5" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Withdrawal Fee %</label>
+              <input type="number" step="0.1" defaultValue="1.0" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Deposit Fee %</label>
+              <input type="number" step="0.1" defaultValue="0.0" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* API Settings */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Zap className="w-5 h-5" />
+            API Settings
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">API Key</label>
+              <div className="flex">
+                <input type="password" defaultValue="••••••••••••••" className="flex-1 px-3 py-2 bg-zinc-900/50 border border-white/10 rounded-l text-white outline-none" />
+                <button className="px-3 py-2 bg-white/5 border border-white/10 border-l-0 rounded-r text-zinc-400 hover:text-white transition">
+                  <Eye className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+            <button className="w-full px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 rounded-lg text-orange-400 font-medium transition-all">
+              Regenerate Key
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render Security
+  const renderSecurity = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Verification Settings */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Shield className="w-5 h-5" />
+            KYC & Verification
+          </h3>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-400">Require KYC</span>
+              <input type="checkbox" defaultChecked className="w-4 h-4" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-400">Require Proof of Address</span>
+              <input type="checkbox" defaultChecked className="w-4 h-4" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-400">Enable 2FA</span>
+              <input type="checkbox" defaultChecked className="w-4 h-4" />
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-zinc-400">Email Verification Required</span>
+              <input type="checkbox" defaultChecked className="w-4 h-4" />
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Security Limits */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <Lock className="w-5 h-5" />
+            Security Limits
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Max Daily Withdrawal (USD)</label>
+              <input type="number" defaultValue="50000" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Account Lockout After Failed Attempts</label>
+              <input type="number" defaultValue="5" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Compliance */}
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6 md:col-span-2">
+          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+            <AlertCircle className="w-5 h-5" />
+            Compliance & Regulations
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">Operating License</label>
+              <input type="text" defaultValue="License #12345" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm text-zinc-400 block mb-2">Last Audit</label>
+                <input type="date" defaultValue="2024-11-15" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+              </div>
+              <div>
+                <label className="text-sm text-zinc-400 block mb-2">Next Audit</label>
+                <input type="date" defaultValue="2025-02-15" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+              </div>
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Save Changes
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render Analytics
+  const renderAnalytics = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4">Platform Growth</h3>
+          <div className="h-64 bg-white/[0.02] border border-white/5 rounded flex items-center justify-center text-zinc-500">
+            📈 Growth Chart
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4">Revenue Distribution</h3>
+          <div className="h-64 bg-white/[0.02] border border-white/5 rounded flex items-center justify-center text-zinc-500">
+             Revenue Chart
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+        <h3 className="text-white font-semibold mb-4">Performance Metrics</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Avg Session Duration', value: '24m 32s' },
+            { label: 'Bounce Rate', value: '3.2%' },
+            { label: 'Daily Active Users', value: '1,247' },
+            { label: 'Conversion Rate', value: '8.5%' },
+          ].map((metric, i) => (
+            <div key={i} className="bg-white/[0.02] border border-white/5 rounded-lg p-4">
+              <p className="text-zinc-400 text-xs mb-2">{metric.label}</p>
+              <p className="text-xl font-bold text-white">{metric.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render Email Notifications
+  const renderEmail = () => (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4">Email Notification Templates</h3>
+          <div className="space-y-2">
+            {['Welcome Email', 'Password Reset', 'Trade Confirmation', 'Withdrawal Approved', 'Account Alert'].map((template, i) => (
+              <div key={i} className="flex items-center justify-between p-3 bg-white/[0.02] border border-white/5 rounded hover:bg-white/[0.05] transition cursor-pointer">
+                <span className="text-zinc-300">{template}</span>
+                <button className="p-1 hover:bg-white/10 rounded transition">
+                  <Edit2 className="w-4 h-4 text-blue-400" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-white/5 to-white/[0.02] backdrop-blur border border-white/10 rounded-lg p-6">
+          <h3 className="text-white font-semibold mb-4">Email Settings</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">SMTP Server</label>
+              <input type="text" defaultValue="smtp.example.com" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">SMTP Port</label>
+              <input type="number" defaultValue="587" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <div>
+              <label className="text-sm text-zinc-400 block mb-2">From Address</label>
+              <input type="email" defaultValue="noreply@tradepro.com" className="w-full px-3 py-2 bg-zinc-900/50 border border-white/10 rounded text-white outline-none focus:border-emerald-500/50" />
+            </div>
+            <button className="w-full px-4 py-2 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg text-emerald-400 font-medium transition-all">
+              Test Email
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-zinc-950 text-white overflow-hidden">
-      {/* Background layers */}
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_70%)]" style={{ zIndex: 1 }} />
-      <div className="fixed inset-0 opacity-10" style={{ zIndex: 1, backgroundImage: 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+      {/* Background */}
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.02),transparent_70%)]" style={{ zIndex: 0 }} />
 
-      <div className="relative z-10">
-        <Navbar />
-        <div className="container mx-auto px-4 md:px-6 py-24 max-w-7xl">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={isVisible ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 0.5 }}
-            className="mb-8"
-          >
-            <div className="inline-block mb-4 px-4 py-1.5 bg-zinc-800/30 backdrop-blur-sm border border-zinc-700/50 rounded-full">
-              <span className="text-zinc-400 text-sm font-medium tracking-wide uppercase flex items-center gap-2">
-                <Shield className="h-3.5 w-3.5" />
-                Admin Dashboard
-              </span>
+      <div className="relative z-10 flex min-h-screen">
+        {/* Sidebar */}
+        <div className={`${sidebarOpen ? 'w-64' : 'w-20'} bg-gradient-to-b from-zinc-900/50 to-black border-r border-white/10 transition-all duration-300`}>
+          <div className="p-4 border-b border-white/10">
+            <div className="flex items-center justify-between">
+              <div className={`flex items-center gap-3 ${!sidebarOpen && 'justify-center'}`}>
+                <div className="w-10 h-10 rounded-lg bg-emerald-500 flex items-center justify-center">
+                  <BarChart3 className="w-6 h-6 text-white" />
+                </div>
+                {sidebarOpen && <span className="font-bold text-lg">Equity Edge Ai Admin</span>}
+              </div>
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold mb-2">Admin Panel</h1>
-            <p className="text-zinc-400">Manage users, deposits, withdrawals, and support tickets</p>
-          </motion.div>
-
-          {/* Stats Grid */}
-          <div className="grid md:grid-cols-4 gap-6 mb-8">
-            <LightCard delay={0}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-zinc-400 mb-2">Total Users</div>
-                  <div className="text-3xl font-bold text-white">{users.length}</div>
-                </div>
-                <div className="p-3 bg-zinc-800/30 rounded-lg border border-zinc-700/40">
-                  <Users className="h-6 w-6 text-zinc-400" strokeWidth={1.5} />
-                </div>
-              </div>
-            </LightCard>
-
-            <LightCard delay={50}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-zinc-400 mb-2">Pending Deposits</div>
-                  <div className="text-3xl font-bold text-white">{pendingDeposits.length}</div>
-                </div>
-                <div className="p-3 bg-emerald-800/30 rounded-lg border border-emerald-700/40">
-                  <Wallet className="h-6 w-6 text-emerald-400" strokeWidth={1.5} />
-                </div>
-              </div>
-            </LightCard>
-
-            <LightCard delay={100}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-zinc-400 mb-2">Pending Withdrawals</div>
-                  <div className="text-3xl font-bold text-white">{pendingWithdrawals.length}</div>
-                </div>
-                <div className="p-3 bg-blue-800/30 rounded-lg border border-blue-700/40">
-                  <Download className="h-6 w-6 text-blue-400" strokeWidth={1.5} />
-                </div>
-              </div>
-            </LightCard>
-
-            <LightCard delay={150}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium text-zinc-400 mb-2">Open Tickets</div>
-                  <div className="text-3xl font-bold text-white">{openTickets.length}</div>
-                </div>
-                <div className="p-3 bg-orange-800/30 rounded-lg border border-orange-700/40">
-                  <MessageSquare className="h-6 w-6 text-orange-400" strokeWidth={1.5} />
-                </div>
-              </div>
-            </LightCard>
           </div>
 
-          {/* Tabs */}
-          <GlassCard>
-            <Tabs defaultValue="deposits" className="space-y-6">
-              <TabsList className="bg-zinc-900/50 border border-zinc-800/50 rounded-lg">
-                <TabsTrigger value="deposits" className="text-zinc-400 data-[state=active]:text-white data-[state=active]:bg-zinc-800/50">
-                  Deposits
-                </TabsTrigger>
-                <TabsTrigger value="withdrawals" className="text-zinc-400 data-[state=active]:text-white data-[state=active]:bg-zinc-800/50">
-                  Withdrawals
-                </TabsTrigger>
-                <TabsTrigger value="tickets" className="text-zinc-400 data-[state=active]:text-white data-[state=active]:bg-zinc-800/50">
-                  Support Tickets
-                </TabsTrigger>
-                <TabsTrigger value="users" className="text-zinc-400 data-[state=active]:text-white data-[state=active]:bg-zinc-800/50">
-                  Users
-                </TabsTrigger>
-              </TabsList>
+          <nav className="p-4 space-y-2">
+            {menuItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
+                  activeTab === item.id
+                    ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400'
+                    : 'text-zinc-400 hover:bg-white/5 border border-transparent'
+                }`}
+                title={!sidebarOpen ? item.label : ''}
+              >
+                <item.icon className="w-5 h-5 flex-shrink-0" />
+                {sidebarOpen && <span className="text-sm font-medium">{item.label}</span>}
+              </button>
+            ))}
+          </nav>
+        </div>
 
-              {/* Deposits Tab */}
-              <TabsContent value="deposits">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-white mb-4">Deposit Requests</h3>
-                  {deposits.length === 0 ? (
-                    <p className="text-center py-8 text-zinc-400">No deposits yet</p>
-                  ) : (
-                    <AnimatePresence>
-                      {deposits.map((deposit, i) => (
-                        <motion.div
-                          key={deposit.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ delay: i * 0.1 }}
-                          className="p-4 border border-white/10 rounded-lg hover:border-white/20 bg-white/[0.02] transition-all duration-300"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1">
-                              <div className="font-semibold text-white">{deposit.profiles?.full_name}</div>
-                              <div className="text-sm text-zinc-400">
-                                Amount: ${deposit.amount.toLocaleString()}
-                              </div>
-                              <div className="text-xs text-zinc-500 mt-1">
-                                {format(new Date(deposit.created_at), 'MMM dd, yyyy HH:mm')}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant={
-                                  deposit.status === 'approved'
-                                    ? 'default'
-                                    : deposit.status === 'rejected'
-                                    ? 'destructive'
-                                    : 'secondary'
-                                }
-                              >
-                                {deposit.status}
-                              </Badge>
-                              {deposit.status === 'pending' && (
-                                <>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => handleVerifyDeposit(deposit.id, 'approved', deposit.user_id, deposit.amount)}
-                                    disabled={loading}
-                                    className="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg border border-emerald-500/30 text-emerald-400 transition-all duration-200"
-                                  >
-                                    <Check className="h-4 w-4" />
-                                  </motion.button>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() => handleVerifyDeposit(deposit.id, 'rejected', deposit.user_id, deposit.amount)}
-                                    disabled={loading}
-                                    className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg border border-red-500/30 text-red-400 transition-all duration-200"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </motion.button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col">
+          {/* Top Bar */}
+          <div className="border-b border-white/10 bg-gradient-to-r from-zinc-900/50 to-black backdrop-blur-sm p-4">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                className="p-2 hover:bg-white/10 rounded-lg transition"
+              >
+                <Sliders className="w-5 h-5" />
+              </button>
+              <div className="flex items-center gap-4">
+                <div className="relative hidden md:block">
+                  <Search className="absolute left-3 top-3 w-4 h-4 text-zinc-500" />
+                  <input
+                    type="text"
+                    placeholder="Search..."
+                    className="pl-10 pr-4 py-2 bg-zinc-900/50 border border-white/10 rounded-lg text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500/50 w-64"
+                  />
                 </div>
-              </TabsContent>
-
-              {/* Withdrawals Tab */}
-              <TabsContent value="withdrawals">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-white mb-4">Withdrawal Requests</h3>
-                  {withdrawals.length === 0 ? (
-                    <p className="text-center py-8 text-zinc-400">No withdrawals yet</p>
-                  ) : (
-                    <AnimatePresence>
-                      {withdrawals.map((withdrawal, i) => (
-                        <motion.div
-                          key={withdrawal.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ delay: i * 0.1 }}
-                          className="p-4 border border-white/10 rounded-lg hover:border-white/20 bg-white/[0.02] transition-all duration-300"
-                        >
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <div className="font-semibold text-white">{withdrawal.profiles?.full_name}</div>
-                              <div className="text-sm text-zinc-400">
-                                Amount: ${withdrawal.amount.toLocaleString()}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant={
-                                  withdrawal.status === 'approved'
-                                    ? 'default'
-                                    : withdrawal.status === 'rejected'
-                                    ? 'destructive'
-                                    : 'secondary'
-                                }
-                              >
-                                {withdrawal.status}
-                              </Badge>
-                              {withdrawal.status === 'pending' && (
-                                <>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() =>
-                                      handleProcessWithdrawal(withdrawal.id, 'approved', withdrawal.user_id, withdrawal.amount)
-                                    }
-                                    disabled={loading}
-                                    className="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 rounded-lg border border-emerald-500/30 text-emerald-400 transition-all duration-200"
-                                  >
-                                    <Check className="h-4 w-4" />
-                                  </motion.button>
-                                  <motion.button
-                                    whileHover={{ scale: 1.05 }}
-                                    whileTap={{ scale: 0.95 }}
-                                    onClick={() =>
-                                      handleProcessWithdrawal(withdrawal.id, 'rejected', withdrawal.user_id, withdrawal.amount)
-                                    }
-                                    disabled={loading}
-                                    className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg border border-red-500/30 text-red-400 transition-all duration-200"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </motion.button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          <div className="text-sm text-zinc-400 space-y-1 p-2 bg-zinc-900/30 rounded border border-zinc-800/50">
-                            <div>Bank: {withdrawal.bank_details.bankName}</div>
-                            <div>Account: {withdrawal.bank_details.accountNumber}</div>
-                            <div>Name: {withdrawal.bank_details.accountName}</div>
-                            <div>Routing: {withdrawal.bank_details.routingNumber}</div>
-                          </div>
-                          <div className="text-xs text-zinc-500 mt-2">
-                            {format(new Date(withdrawal.created_at), 'MMM dd, yyyy HH:mm')}
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
+                <div className="flex items-center gap-3">
+                  <Bell className="w-5 h-5 text-zinc-400 hover:text-white cursor-pointer transition" />
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center font-bold text-white text-sm">
+                    A
+                  </div>
                 </div>
-              </TabsContent>
+              </div>
+            </div>
+          </div>
 
-              {/* Tickets Tab */}
-              <TabsContent value="tickets">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-white mb-4">Support Tickets</h3>
-                  {tickets.length === 0 ? (
-                    <p className="text-center py-8 text-zinc-400">No tickets yet</p>
-                  ) : (
-                    <AnimatePresence>
-                      {tickets.map((ticket, i) => (
-                        <motion.div
-                          key={ticket.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ delay: i * 0.1 }}
-                        >
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <button
-                                onClick={() => handleViewTicket(ticket)}
-                                className="w-full text-left p-4 border border-white/10 rounded-lg hover:border-white/20 bg-white/[0.02] transition-all duration-300 group"
-                              >
-                                <div className="flex justify-between items-start mb-2">
-                                  <div>
-                                    <div className="font-semibold text-white group-hover:text-emerald-400 transition-colors">
-                                      {ticket.subject}
-                                    </div>
-                                    <div className="text-sm text-zinc-400">{ticket.profiles?.full_name}</div>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <Badge variant={ticket.status === 'open' ? 'default' : 'secondary'}>
-                                      {ticket.status}
-                                    </Badge>
-                                    <Badge variant="outline" className="text-zinc-400 border-zinc-700/50">
-                                      {ticket.priority}
-                                    </Badge>
-                                  </div>
-                                </div>
-                                <div className="text-sm text-zinc-500 truncate">
-                                  {ticket.message.substring(0, 100)}...
-                                </div>
-                                <div className="text-xs text-zinc-600 mt-2">
-                                  {format(new Date(ticket.created_at), 'MMM dd, yyyy HH:mm')}
-                                </div>
-                              </button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto bg-zinc-950 border border-white/10">
-                              <DialogHeader>
-                                <DialogTitle className="text-white">{selectedTicket?.subject}</DialogTitle>
-                                <DialogDescription className="text-zinc-400">
-                                  From: {selectedTicket?.profiles?.full_name} |{' '}
-                                  {selectedTicket && format(new Date(selectedTicket.created_at), 'MMM dd, yyyy HH:mm')}
-                                </DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div className="p-4 bg-zinc-900/50 border border-white/10 rounded-lg">
-                                  <p className="text-sm text-zinc-300">{selectedTicket?.message}</p>
-                                </div>
-
-                                {ticketReplies.length > 0 && (
-                                  <div className="space-y-2">
-                                    <h4 className="font-semibold text-white text-sm">Replies</h4>
-                                    {ticketReplies.map((reply) => (
-                                      <motion.div
-                                        key={reply.id}
-                                        initial={{ opacity: 0, y: 10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        className={`p-3 rounded-lg border ${
-                                          reply.is_admin
-                                            ? 'bg-emerald-900/20 ml-4 border-emerald-500/20'
-                                            : 'bg-white/[0.02] mr-4 border-white/10'
-                                        }`}
-                                      >
-                                        <div className="text-xs text-zinc-400 mb-1">
-                                          {reply.profiles?.full_name} {reply.is_admin && '(Admin)'} -{' '}
-                                          {format(new Date(reply.created_at), 'MMM dd, HH:mm')}
-                                        </div>
-                                        <p className="text-sm text-zinc-300">{reply.message}</p>
-                                      </motion.div>
-                                    ))}
-                                  </div>
-                                )}
-
-                                {selectedTicket?.status === 'open' && (
-                                  <div className="space-y-4 border-t border-white/10 pt-4">
-                                    <div>
-                                      <label className="text-sm font-medium text-zinc-400 block mb-2">Reply Message</label>
-                                      <Textarea
-                                        placeholder="Type your reply..."
-                                        value={replyMessage}
-                                        onChange={(e) => setReplyMessage(e.target.value)}
-                                        rows={4}
-                                        className="bg-zinc-900/50 border-white/10 text-white placeholder:text-zinc-500"
-                                      />
-                                    </div>
-                                    <div className="flex gap-2">
-                                      <Button
-                                        onClick={handleReplyTicket}
-                                        disabled={loading || !replyMessage.trim()}
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                                      >
-                                        Send Reply
-                                      </Button>
-                                      <Button
-                                        variant="outline"
-                                        onClick={() => handleCloseTicket(selectedTicket.id)}
-                                        disabled={loading}
-                                        className="border-white/20 text-zinc-300 hover:bg-white/5"
-                                      >
-                                        Close Ticket
-                                      </Button>
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </DialogContent>
-                          </Dialog>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
-                </div>
-              </TabsContent>
-
-              {/* Users Tab */}
-              <TabsContent value="users">
-                <div className="space-y-3">
-                  <h3 className="text-lg font-semibold text-white mb-4">Platform Users</h3>
-                  {users.length === 0 ? (
-                    <p className="text-center py-8 text-zinc-400">No users yet</p>
-                  ) : (
-                    <AnimatePresence>
-                      {users.map((usr, i) => (
-                        <motion.div
-                          key={usr.id}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          transition={{ delay: i * 0.1 }}
-                          className="p-4 border border-white/10 rounded-lg hover:border-white/20 bg-white/[0.02] transition-all duration-300"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-semibold text-white">{usr.full_name}</div>
-                              <div className="text-sm text-zinc-400 font-mono">{usr.id}</div>
-                              <div className="text-xs text-zinc-500 mt-1">
-                                Joined: {format(new Date(usr.created_at), 'MMM dd, yyyy')}
-                              </div>
-                            </div>
-                            <div>
-                              {usr.is_admin && (
-                                <Badge variant="default" className="bg-emerald-600">
-                                  Admin
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
-                  )}
-                </div>
-              </TabsContent>
-            </Tabs>
-          </GlassCard>
+          {/* Content Area */}
+          <div className="flex-1 overflow-auto p-6">
+            <div className="max-w-7xl mx-auto">
+              {activeTab === 'dashboard' && renderDashboard()}
+              {activeTab === 'users' && renderUsers()}
+              {activeTab === 'traders' && renderTraders()}
+              {activeTab === 'transactions' && renderTransactions()}
+              {activeTab === 'assets' && renderAssets()}
+              {activeTab === 'deposits' && renderDepositsWithdrawals()}
+              {activeTab === 'support' && renderSupport()}
+              {activeTab === 'content' && renderContent()}
+              {activeTab === 'settings' && renderSettings()}
+              {activeTab === 'security' && renderSecurity()}
+              {activeTab === 'analytics' && renderAnalytics()}
+              {activeTab === 'email' && renderEmail()}
+            </div>
+          </div>
         </div>
       </div>
     </div>

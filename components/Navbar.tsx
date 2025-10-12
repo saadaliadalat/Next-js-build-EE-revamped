@@ -213,7 +213,7 @@ export function Navbar() {
           </div>
           <span className="text-xl font-bold tracking-tight">
             <span className="text-white group-hover:text-white transition-colors duration-300">Equity</span>
-            <span className="text-zinc-400 group-hover:text-zinc-300 transition-colors duration-300">Edge</span>
+            <span className="text-zinc-400 group-hover:text-zinc-300 transition-colors duration-300">EdgeAi</span>
           </span>
         </Link>
 
