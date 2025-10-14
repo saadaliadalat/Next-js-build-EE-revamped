@@ -1,10 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  reactStrictMode: true,
+
   eslint: {
     ignoreDuringBuilds: true,
   },
-  images: { unoptimized: true },
+
+  images: {
+    unoptimized: false, // use Next.js optimization
+    domains: ['gohbmlpmophyvmggdgrj.supabase.co'], // your Supabase project domain
+  },
+
+  experimental: {
+    serverActions: true,
+  },
 };
 
 module.exports = nextConfig;

@@ -321,16 +321,17 @@ export default function HomePage() {
               
               <div className="relative h-[300px] sm:h-[400px] rounded-xl overflow-hidden border border-zinc-800/50 bg-black/40 group-hover:border-zinc-700/60 transition-colors duration-300">
                 {isMounted && (
-                  <iframe
-                    key={selectedPair}
-                    src={chartUrl}
-                    width="100%"
-                    height="100%"
-                    frameBorder="0"
-                    allowTransparency
-                    scrolling="no"
-                    className="animate-fade-in"
-                  />
+    <iframe
+  key={selectedPair}
+  src={chartUrl}
+  width="100%"
+  height="100%"
+  frameBorder="0"
+  scrolling="no"
+  className="animate-fade-in bg-transparent rounded-xl"
+/>
+
+
                 )}
                 <div className="absolute bottom-3 right-3 px-2 py-1 bg-black/60 backdrop-blur-sm border border-zinc-800/50 rounded text-[10px] text-zinc-500 font-mono">
                   LIVE
