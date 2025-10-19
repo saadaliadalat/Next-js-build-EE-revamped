@@ -7,12 +7,12 @@ const nextConfig = {
   },
 
   images: {
-    unoptimized: false, // use Next.js optimization
-    domains: ['gohbmlpmophyvmggdgrj.supabase.co'], // your Supabase project domain
+    unoptimized: false,
+    domains: ['gohbmlpmophyvmggdgrj.supabase.co'], // your Supabase domain
   },
 
   experimental: {
-    serverActions: true,
+    serverActions: {}, // ✅ fixed syntax for Next.js 15
   },
 };
 
