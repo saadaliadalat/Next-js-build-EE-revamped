@@ -2,413 +2,571 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Loader2, TrendingUp, Eye, EyeOff, CheckCircle2, XCircle, Mail, Lock, User, ArrowRight } from 'lucide-react';
-import { supabase } from '@/lib/supabase'; // Make sure this path matches where you put your supabase client
+import { motion, AnimatePresence } from 'framer-motion';
+import { Loader2, TrendingUp, Eye, EyeOff, CheckCircle2, XCircle, Mail, Lock, User, ArrowRight, MapPin, Calendar, Flag, IdCard, Upload, Check } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+
+// Define interface for errors state
+interface Errors {
+  firstName?: string;
+  lastName?: string;
+  emailOrPhone?: string;
+  address?: string;
+  zipCode?: string;
+  nationality?: string;
+  dateOfBirth?: string;
+  idType?: string;
+  idNumber?: string;
+  password?: string;
+  confirmPassword?: string;
+  idFront?: string;
+  idBack?: string;
+}
 
 export default function SignupPage() {
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
+  const [step, setStep] = useState(1);
+  const [firstName, setFirstName] = useState(localStorage.getItem('signup_firstName') || '');
+  const [lastName, setLastName] = useState(localStorage.getItem('signup_lastName') || '');
+  const [emailOrPhone, setEmailOrPhone] = useState(localStorage.getItem('signup_emailOrPhone') || '');
+  const [address, setAddress] = useState(localStorage.getItem('signup_address') || '');
+  const [zipCode, setZipCode] = useState(localStorage.getItem('signup_zipCode') || '');
+  const [nationality, setNationality] = useState(localStorage.getItem('signup_nationality') || '');
+  const [dateOfBirth, setDateOfBirth] = useState(localStorage.getItem('signup_dateOfBirth') || '');
+  const [idType, setIdType] = useState(localStorage.getItem('signup_idType') || '');
+  const [idNumber, setIdNumber] = useState(localStorage.getItem('signup_idNumber') || '');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [idFront, setIdFront] = useState<File | null>(null);
+  const [idBack, setIdBack] = useState<File | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [fullNameError, setFullNameError] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [confirmPasswordError, setConfirmPasswordError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [focusedField, setFocusedField] = useState('');
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const fullNameRef = useRef<HTMLInputElement>(null);
+  const [errors, setErrors] = useState<Errors>({});
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const firstNameRef = useRef<HTMLInputElement>(null);
+
+  const nationalities = ['Indian', 'American', 'British', 'Canadian', 'Other'];
+  const idTypes = {
+    Indian: ['National ID', 'Driving License', 'Passport', 'Residence Permit', 'Voter ID'],
+    default: ['Passport', 'National ID', 'Driving License']
+  };
 
   useEffect(() => {
-    setMounted(true);
-    fullNameRef.current?.focus();
-
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
+    firstNameRef.current?.focus();
+    return () => {
+      localStorage.setItem('signup_firstName', firstName);
+      localStorage.setItem('signup_lastName', lastName);
+      localStorage.setItem('signup_emailOrPhone', emailOrPhone);
+      localStorage.setItem('signup_address', address);
+      localStorage.setItem('signup_zipCode', zipCode);
+      localStorage.setItem('signup_nationality', nationality);
+      localStorage.setItem('signup_dateOfBirth', dateOfBirth);
+      localStorage.setItem('signup_idType', idType);
+      localStorage.setItem('signup_idNumber', idNumber);
     };
+  }, [firstName, lastName, emailOrPhone, address, zipCode, nationality, dateOfBirth, idType, idNumber]);
 
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
-
-  const validateFullName = (value: string) => {
-    if (!value) return 'Full name is required';
-    if (value.length < 2) return 'Full name must be at least 2 characters';
-    return '';
-  };
-
-  const validateEmail = (value: string) => {
-    if (!value) return 'Email is required';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Invalid email format';
-    return '';
-  };
-
-  const validatePassword = (value: string) => {
-    if (!value) return 'Password is required';
-    if (value.length < 6) return 'Password must be at least 6 characters';
-    return '';
-  };
-
-  const validateConfirmPassword = (value: string, password: string) => {
-    if (!value) return 'Confirm password is required';
-    if (value !== password) return 'Passwords do not match';
-    return '';
-  };
-
-  const handleFullNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setFullName(value);
-    setFullNameError(validateFullName(value));
-  };
-
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setEmail(value);
-    setEmailError(validateEmail(value));
-  };
-
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setPassword(value);
-    setPasswordError(validatePassword(value));
-    if (confirmPassword) {
-      setConfirmPasswordError(validateConfirmPassword(confirmPassword, value));
+  const validateStep1 = () => {
+    const newErrors: Errors = {};
+    if (!firstName) newErrors.firstName = 'First name is required';
+    if (!lastName) newErrors.lastName = 'Last name is required';
+    if (!emailOrPhone) newErrors.emailOrPhone = 'Email or phone is required';
+    if (emailOrPhone.includes('@') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailOrPhone)) {
+      newErrors.emailOrPhone = 'Invalid email format';
     }
+    if (!password) newErrors.password = 'Password is required';
+    if (password.length < 6) newErrors.password = 'Password must be at least 6 characters';
+    if (!confirmPassword) newErrors.confirmPassword = 'Confirm password is required';
+    if (confirmPassword !== password) newErrors.confirmPassword = 'Passwords do not match';
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  const handleConfirmPasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setConfirmPassword(value);
-    setConfirmPasswordError(validateConfirmPassword(value, password));
+  const validateStep2 = () => {
+    const newErrors: Errors = {};
+    if (!address) newErrors.address = 'Address is required';
+    if (!zipCode) newErrors.zipCode = 'Zip code is required';
+    if (!nationality) newErrors.nationality = 'Nationality is required';
+    if (!dateOfBirth) newErrors.dateOfBirth = 'Date of birth is required';
+    if (!idType) newErrors.idType = 'ID type is required';
+    if (!idNumber) newErrors.idNumber = 'ID number is required';
+    if (!idFront) newErrors.idFront = 'Front ID image is required';
+    if (!idBack) newErrors.idBack = 'Back ID image is required';
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const uploadFile = async (file: File, userId: string, type: 'front' | 'back') => {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${userId}/${type}.${fileExt}`;
+    const { error } = await supabase.storage.from('user-ids').upload(fileName, file);
+    if (error) throw error;
+    return supabase.storage.from('user-ids').getPublicUrl(fileName).data.publicUrl;
   };
 
   const handleSubmit = async () => {
-    const fullNameErr = validateFullName(fullName);
-    const emailErr = validateEmail(email);
-    const passwordErr = validatePassword(password);
-    const confirmPasswordErr = validateConfirmPassword(confirmPassword, password);
-
-    if (fullNameErr || emailErr || passwordErr || confirmPasswordErr) {
-      setFullNameError(fullNameErr);
-      setEmailError(emailErr);
-      setPasswordError(passwordErr);
-      setConfirmPasswordError(confirmPasswordErr);
-      return;
-    }
-
+    if (!validateStep2()) return;
     setLoading(true);
 
-    // Supabase signup
     const { data, error } = await supabase.auth.signUp({
-      email,
+      email: emailOrPhone.includes('@') ? emailOrPhone as string : undefined,
+      phone: !emailOrPhone.includes('@') ? emailOrPhone as string : undefined,
       password,
       options: {
-        data: { full_name: fullName },
-      },
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          address,
+          zip_code: zipCode,
+          nationality,
+          date_of_birth: dateOfBirth,
+          id_type: idType,
+          id_number: idNumber
+        }
+      }
     });
 
-    if (error) {
-      alert(error.message);
+    if (error || !data.user) {
+      alert(error?.message || 'User creation failed.');
       setLoading(false);
       return;
     }
 
-    alert('Signup successful! Please check your email to confirm.');
-    setLoading(false);
+    let idFrontUrl = '';
+    let idBackUrl = '';
+    try {
+      if (idFront && idBack) {
+        idFrontUrl = await uploadFile(idFront, data.user.id, 'front');
+        idBackUrl = await uploadFile(idBack, data.user.id, 'back');
+      }
+    } catch (error) {
+      alert('Failed to upload ID images.');
+      setLoading(false);
+      return;
+    }
 
-    setFullName('');
-    setEmail('');
-    setPassword('');
-    setConfirmPassword('');
+    const { error: profileError } = await supabase
+      .from('user_profiles')
+      .insert([{
+        user_id: data.user.id,
+        first_name: firstName,
+        last_name: lastName,
+        email_or_phone: emailOrPhone,
+        address,
+        zip_code: zipCode,
+        nationality,
+        date_of_birth: dateOfBirth,
+        id_type: idType,
+        id_number: idNumber,
+        id_front_url: idFrontUrl,
+        id_back_url: idBackUrl
+      }]);
+
+    if (profileError) {
+      alert(profileError.message);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    setSuccess(true);
+    localStorage.removeItem('signup_firstName');
+    localStorage.removeItem('signup_lastName');
+    localStorage.removeItem('signup_emailOrPhone');
+    localStorage.removeItem('signup_address');
+    localStorage.removeItem('signup_zipCode');
+    localStorage.removeItem('signup_nationality');
+    localStorage.removeItem('signup_dateOfBirth');
+    localStorage.removeItem('signup_idType');
+    localStorage.removeItem('signup_idNumber');
   };
 
+  const nextStep = () => {
+    if (validateStep1()) setStep(2);
+  };
+
+  const prevStep = () => setStep(1);
+
+  const inputClass = (field: keyof Errors) => 
+    `w-full px-4 py-3 bg-white/10 backdrop-blur-sm border rounded-xl text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 font-inter ${errors[field] ? 'border-red-500/50' : focusedField === field ? 'border-indigo-400/50 shadow-lg shadow-indigo-400/20' : field in errors ? 'border-white/20' : 'border-zinc-700/50'}`;
+
+  const labelClass = 'text-sm font-medium text-zinc-300 flex items-center gap-2 font-inter';
+  const errorClass = 'text-red-400 text-xs flex items-center gap-1 mt-1 animate-slide-down';
+
+  if (success) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white flex items-center justify-center p-4"
+      >
+        <div className="relative w-full max-w-md bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 p-8 shadow-2xl">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.3, delay: 0.2 }}
+            className="flex justify-center mb-6"
+          >
+            <CheckCircle2 className="h-16 w-16 text-indigo-400" />
+          </motion.div>
+          <h1 className="text-2xl font-bold text-center mb-4 font-inter">Welcome aboard, {firstName}!</h1>
+          <p className="text-zinc-400 text-center font-inter">Your account has been successfully created.</p>
+          <Link href="/dashboard" className="mt-6 block text-center text-indigo-400 hover:text-indigo-300 transition-colors font-inter">
+            Go to Dashboard
+          </Link>
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black to-zinc-950 text-white flex items-center justify-center p-4 overflow-hidden relative">
-      {/* Background gradients */}
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.03),transparent_60%)]" style={{ zIndex: 0 }} />
-      <div className="fixed inset-0 opacity-10" style={{ zIndex: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
+    <div className="min-h-screen bg-gradient-to-b from-slate-900 to-slate-950 text-white flex items-center justify-center p-4 relative overflow-hidden font-inter">
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.1),transparent_70%)]" />
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="relative w-full max-w-lg z-10"
+      >
+        <div className="bg-white/10 backdrop-blur-lg rounded-2xl border border-white/10 p-8 shadow-2xl">
+          <div className="flex items-center justify-center space-x-2 mb-8">
+            <TrendingUp className="h-8 w-8 text-indigo-400 animate-pulse" />
+            <span className="text-2xl font-bold">
+              EquityEdge<span className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">ai</span>
+            </span>
+          </div>
 
-      {/* Cursor glow */}
-      {mounted && (
-        <div 
-          className="fixed w-96 h-96 pointer-events-none transition-opacity duration-300"
-          style={{
-            background: 'radial-gradient(circle, rgba(255,255,255,0.04) 0%, transparent 70%)',
-            left: mousePosition.x - 192,
-            top: mousePosition.y - 192,
-            zIndex: 2,
-          }}
-        />
-      )}
-      
-      <div className={`relative w-full max-w-md z-10 transition-all duration-700 ${mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}>
-        <div className="relative group">
-          {/* Animated border glow */}
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-white/20 via-zinc-800/20 to-white/20 rounded-2xl blur opacity-30 group-hover:opacity-60 transition-opacity duration-500 animate-gradient" />
-          
-          {/* Glass card */}
-          <div className="relative bg-gradient-to-br from-white/[0.08] via-white/[0.05] to-white/[0.02] backdrop-blur-md rounded-2xl border border-zinc-800/30 p-6 shadow-lg">
-            {/* Logo */}
-            <div className="flex items-center justify-center space-x-2 mb-6">
-              <div className="relative">
-                <TrendingUp className="h-8 w-8 text-white animate-float-slow" />
-                <div className="absolute inset-0 blur-xl bg-white/10 animate-pulse-slow" />
-              </div>
-              <span className="text-2xl font-bold text-white">
-                EquityEdge<span className="text-gray-300 animate-gradient-text">ai</span>
-              </span>
+          {/* Progress Indicator */}
+          <div className="mb-8">
+            <div className="flex justify-between mb-2">
+              <span className={`text-sm font-medium ${step === 1 ? 'text-indigo-400' : 'text-zinc-400'}`}>Step 1: Account Basics</span>
+              <span className={`text-sm font-medium ${step === 2 ? 'text-indigo-400' : 'text-zinc-400'}`}>Step 2: Verification</span>
             </div>
-
-            <div className="text-center mb-6">
-              <h1 className="text-2xl font-bold text-white mb-2 animate-fade-in-up">Create Account</h1>
-              <p className="text-zinc-400 text-sm animate-fade-in-up" style={{ animationDelay: '100ms' }}>
-                Join institutional traders worldwide
-              </p>
+            <div className="h-1 bg-zinc-700 rounded-full">
+              <motion.div
+                className="h-full bg-gradient-to-r from-indigo-400 to-purple-400 rounded-full"
+                initial={{ width: '50%' }}
+                animate={{ width: step === 1 ? '50%' : '100%' }}
+                transition={{ duration: 0.3 }}
+              />
             </div>
+          </div>
 
-            <div className="space-y-4">
-              {/* Full Name */}
-              <div className="space-y-2 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
-                <label htmlFor="fullName" className="text-sm font-medium text-zinc-400 flex items-center gap-2">
-                  <User className="h-4 w-4" />
-                  Full Name
-                </label>
-                <div className="relative">
+          <AnimatePresence mode="wait">
+            {step === 1 && (
+              <motion.div
+                key="step1"
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -50 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
+              >
+                <div className="space-y-2">
+                  <label htmlFor="firstName" className={labelClass}>
+                    <User className="h-4 w-4" /> First Name
+                  </label>
                   <input
-                    id="fullName"
+                    id="firstName"
                     type="text"
-                    placeholder="John Doe"
-                    value={fullName}
-                    onChange={handleFullNameChange}
-                    onFocus={() => setFocusedField('fullName')}
+                    placeholder="John"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    onFocus={() => setFocusedField('firstName')}
                     onBlur={() => setFocusedField('')}
-                    ref={fullNameRef}
-                    className={`w-full px-4 py-2 bg-zinc-900/30 border rounded-lg text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 ${
-                      focusedField === 'fullName' ? 'border-white/50 shadow-md shadow-white/10' : 
-                      fullNameError ? 'border-red-500/50' : 
-                      fullName && !fullNameError ? 'border-white/30' :
-                      'border-zinc-800/50'
-                    }`}
+                    ref={firstNameRef}
+                    className={inputClass('firstName')}
                   />
-                  {fullName && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {fullNameError ? (
-                        <XCircle className="h-4 w-4 text-red-400 animate-scale-in" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-white animate-scale-in" />
-                      )}
-                    </div>
-                  )}
+                  {errors.firstName && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.firstName}</p>}
                 </div>
-                {fullNameError && (
-                  <p className="text-red-400 text-xs flex items-center gap-1 animate-slide-down">
-                    <XCircle className="h-3 w-3" />
-                    {fullNameError}
-                  </p>
-                )}
-              </div>
-
-              {/* Email */}
-              <div className="space-y-2 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
-                <label htmlFor="email" className="text-sm font-medium text-zinc-400 flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  Email
-                </label>
-                <div className="relative">
+                <div className="space-y-2">
+                  <label htmlFor="lastName" className={labelClass}>
+                    <User className="h-4 w-4" /> Last Name
+                  </label>
                   <input
-                    id="email"
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={handleEmailChange}
-                    onFocus={() => setFocusedField('email')}
+                    id="lastName"
+                    type="text"
+                    placeholder="Doe"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    onFocus={() => setFocusedField('lastName')}
                     onBlur={() => setFocusedField('')}
-                    className={`w-full px-4 py-2 bg-zinc-900/30 border rounded-lg text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 ${
-                      focusedField === 'email' ? 'border-white/50 shadow-md shadow-white/10' : 
-                      emailError ? 'border-red-500/50' : 
-                      email && !emailError ? 'border-white/30' :
-                      'border-zinc-800/50'
-                    }`}
+                    className={inputClass('lastName')}
                   />
-                  {email && (
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                      {emailError ? (
-                        <XCircle className="h-4 w-4 text-red-400 animate-scale-in" />
-                      ) : (
-                        <CheckCircle2 className="h-4 w-4 text-white animate-scale-in" />
-                      )}
-                    </div>
-                  )}
+                  {errors.lastName && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.lastName}</p>}
                 </div>
-                {emailError && (
-                  <p className="text-red-400 text-xs flex items-center gap-1 animate-slide-down">
-                    <XCircle className="h-3 w-3" />
-                    {emailError}
-                  </p>
-                )}
-              </div>
-
-              {/* Password */}
-              <div className="space-y-2 animate-fade-in-up" style={{ animationDelay: '400ms' }}>
-                <label htmlFor="password" className="text-sm font-medium text-zinc-400 flex items-center gap-2">
-                  <Lock className="h-4 w-4" />
-                  Password
-                </label>
-                <div className="relative">
+                <div className="space-y-2">
+                  <label htmlFor="emailOrPhone" className={labelClass}>
+                    <Mail className="h-4 w-4" /> Email or Phone
+                  </label>
                   <input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={handlePasswordChange}
-                    onFocus={() => setFocusedField('password')}
+                    id="emailOrPhone"
+                    type="text"
+                    placeholder="your@email.com or +1234567890"
+                    value={emailOrPhone}
+                    onChange={(e) => setEmailOrPhone(e.target.value)}
+                    onFocus={() => setFocusedField('emailOrPhone')}
                     onBlur={() => setFocusedField('')}
-                    className={`w-full px-4 py-2 bg-zinc-900/30 border rounded-lg text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 pr-12 ${
-                      focusedField === 'password' ? 'border-white/50 shadow-md shadow-white/10' : 
-                      passwordError ? 'border-red-500/50' : 
-                      password && !passwordError ? 'border-white/30' :
-                      'border-zinc-800/50'
-                    }`}
+                    className={inputClass('emailOrPhone')}
                   />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                    {password && (
-                      <div>
-                        {passwordError ? (
-                          <XCircle className="h-4 w-4 text-red-400 animate-scale-in" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-white animate-scale-in" />
-                        )}
-                      </div>
-                    )}
+                  {errors.emailOrPhone && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.emailOrPhone}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="password" className={labelClass}>
+                    <Lock className="h-4 w-4" /> Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      onFocus={() => setFocusedField('password')}
+                      onBlur={() => setFocusedField('')}
+                      className={`${inputClass('password')} pr-12`}
+                    />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="text-zinc-500 hover:text-gray-300 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
-                </div>
-                {passwordError && (
-                  <p className="text-red-400 text-xs flex items-center gap-1 animate-slide-down">
-                    <XCircle className="h-3 w-3" />
-                    {passwordError}
-                  </p>
-                )}
-                {password && !passwordError && (
-                  <div className="space-y-1">
-                    <div className="flex gap-1">
-                      {[1, 2, 3, 4].map((i) => (
-                        <div
-                          key={i}
-                          className={`h-1 flex-1 rounded-full transition-all duration-300 ${password.length >= i * 2 ? 'bg-white' : 'bg-zinc-700'}`}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-white text-xs">Strong password</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Confirm Password */}
-              <div className="space-y-2 animate-fade-in-up" style={{ animationDelay: '500ms' }}>
-                <label htmlFor="confirmPassword" className="text-sm font-medium text-zinc-400 flex items-center gap-2">
-                  <Lock className="h-4 w-4" />
-                  Confirm Password
-                </label>
-                <div className="relative">
-                  <input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? 'text' : 'password'}
-                    value={confirmPassword}
-                    onChange={handleConfirmPasswordChange}
-                    onFocus={() => setFocusedField('confirmPassword')}
-                    onBlur={() => setFocusedField('')}
-                    className={`w-full px-4 py-2 bg-zinc-900/30 border rounded-lg text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 pr-12 ${
-                      focusedField === 'confirmPassword' ? 'border-white/50 shadow-md shadow-white/10' : 
-                      confirmPasswordError ? 'border-red-500/50' : 
-                      confirmPassword && !confirmPasswordError ? 'border-white/30' :
-                      'border-zinc-800/50'
-                    }`}
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                    {confirmPassword && (
-                      <div>
-                        {confirmPasswordError ? (
-                          <XCircle className="h-4 w-4 text-red-400 animate-scale-in" />
-                        ) : (
-                          <CheckCircle2 className="h-4 w-4 text-white animate-scale-in" />
-                        )}
+                  {errors.password && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.password}</p>}
+                  {password && !errors.password && (
+                    <div className="space-y-1">
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4].map((i) => (
+                          <div key={i} className={`h-1 flex-1 rounded-full transition-all duration-300 ${password.length >= i * 2 ? 'bg-indigo-400' : 'bg-zinc-700'}`} />
+                        ))}
                       </div>
-                    )}
+                      <p className="text-zinc-400 text-xs font-inter">Strong password</p>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="confirmPassword" className={labelClass}>
+                    <Lock className="h-4 w-4" /> Confirm Password
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="confirmPassword"
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      onFocus={() => setFocusedField('confirmPassword')}
+                      onBlur={() => setFocusedField('')}
+                      className={`${inputClass('confirmPassword')} pr-12`}
+                    />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="text-zinc-500 hover:text-gray-300 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 transition-colors"
                     >
                       {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {errors.confirmPassword && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.confirmPassword}</p>}
                 </div>
-                {confirmPasswordError && (
-                  <p className="text-red-400 text-xs flex items-center gap-1 animate-slide-down">
-                    <XCircle className="h-3 w-3" />
-                    {confirmPasswordError}
-                  </p>
-                )}
-              </div>
-
-              {/* Submit Button */}
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={loading}
-                className="group relative w-full mt-6 px-6 py-3 bg-gradient-to-r from-gray-800 to-zinc-900 text-white font-semibold rounded-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-white/20 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden animate-fade-in-up"
-                style={{ animationDelay: '600ms' }}
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={nextStep}
+                  className="w-full mt-6 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-indigo-500/20 font-inter"
+                >
+                  Next Step <ArrowRight className="h-4 w-4 inline ml-2" />
+                </motion.button>
+              </motion.div>
+            )}
+            {step === 2 && (
+              <motion.div
+                key="step2"
+                initial={{ opacity: 0, x: 50 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -50 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-6"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
-                <span className="relative flex items-center justify-center gap-2">
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Creating account...
-                    </>
-                  ) : (
-                    <>
-                      Create Account
-                      <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
-                    </>
-                  )}
-                </span>
-              </button>
+                <div className="space-y-2">
+                  <label htmlFor="address" className={labelClass}>
+                    <MapPin className="h-4 w-4" /> Address
+                  </label>
+                  <input
+                    id="address"
+                    type="text"
+                    placeholder="123 Main St"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    onFocus={() => setFocusedField('address')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('address')}
+                  />
+                  {errors.address && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.address}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="zipCode" className={labelClass}>
+                    <MapPin className="h-4 w-4" /> Zip/Postal Code
+                  </label>
+                  <input
+                    id="zipCode"
+                    type="text"
+                    placeholder="12345"
+                    value={zipCode}
+                    onChange={(e) => setZipCode(e.target.value)}
+                    onFocus={() => setFocusedField('zipCode')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('zipCode')}
+                  />
+                  {errors.zipCode && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.zipCode}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="nationality" className={labelClass}>
+                    <Flag className="h-4 w-4" /> Nationality
+                  </label>
+                  <select
+                    id="nationality"
+                    value={nationality}
+                    onChange={(e) => { setNationality(e.target.value); setIdType(''); }}
+                    onFocus={() => setFocusedField('nationality')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('nationality')}
+                  >
+                    <option value="">Select Nationality</option>
+                    {nationalities.map((nat) => (
+                      <option key={nat} value={nat}>{nat}</option>
+                    ))}
+                  </select>
+                  {errors.nationality && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.nationality}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="dateOfBirth" className={labelClass}>
+                    <Calendar className="h-4 w-4" /> Date of Birth
+                  </label>
+                  <input
+                    id="dateOfBirth"
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    onFocus={() => setFocusedField('dateOfBirth')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('dateOfBirth')}
+                  />
+                  {errors.dateOfBirth && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.dateOfBirth}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="idType" className={labelClass}>
+                    <IdCard className="h-4 w-4" /> ID Type
+                  </label>
+                  <select
+                    id="idType"
+                    value={idType}
+                    onChange={(e) => setIdType(e.target.value)}
+                    onFocus={() => setFocusedField('idType')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('idType')}
+                  >
+                    <option value="">Select ID Type</option>
+                    {(nationality === 'Indian' ? idTypes.Indian : idTypes.default).map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                  {errors.idType && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.idType}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="idNumber" className={labelClass}>
+                    <IdCard className="h-4 w-4" /> ID Number
+                  </label>
+                  <input
+                    id="idNumber"
+                    type="text"
+                    placeholder="ID Number"
+                    value={idNumber}
+                    onChange={(e) => setIdNumber(e.target.value)}
+                    onFocus={() => setFocusedField('idNumber')}
+                    onBlur={() => setFocusedField('')}
+                    className={inputClass('idNumber')}
+                  />
+                  {errors.idNumber && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.idNumber}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="idFront" className={labelClass}>
+                    <Upload className="h-4 w-4" /> ID Front Image
+                  </label>
+                  <input
+                    id="idFront"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setIdFront(e.target.files?.[0] || null)}
+                    className={inputClass('idFront')}
+                  />
+                  {errors.idFront && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.idFront}</p>}
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="idBack" className={labelClass}>
+                    <Upload className="h-4 w-4" /> ID Back Image
+                  </label>
+                  <input
+                    id="idBack"
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setIdBack(e.target.files?.[0] || null)}
+                    className={inputClass('idBack')}
+                  />
+                  {errors.idBack && <p className={errorClass}><XCircle className="h-3 w-3" />{errors.idBack}</p>}
+                </div>
+                <div className="flex justify-between mt-6">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={prevStep}
+                    className="px-6 py-3 bg-zinc-700 text-white font-semibold rounded-xl transition-all duration-300 font-inter"
+                  >
+                    Back
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed font-inter"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin inline mr-2" />
+                        Creating account...
+                      </>
+                    ) : (
+                      <>
+                        Create Account <Check className="h-4 w-4 inline ml-2" />
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-              <p className="text-sm text-center text-zinc-400 mt-6 animate-fade-in-up" style={{ animationDelay: '700ms' }}>
-                Already have an account?{' '}
-                <Link href="/auth/login" className="text-gray-300 hover:text-gray-200 transition-colors font-medium hover:underline">
-                  Sign in
-                </Link>
-              </p>
-            </div>
-          </div>
+          <p className="text-sm text-center text-zinc-400 mt-6 flex items-center justify-center gap-2 font-inter">
+            <Lock className="h-4 w-4" /> Your information is securely encrypted and never shared.
+          </p>
+          <p className="text-sm text-center text-zinc-400 mt-4 font-inter">
+            Already have an account?{' '}
+            <Link href="/auth/login" className="text-indigo-400 hover:text-indigo-300 transition-colors font-medium">
+              Sign in
+            </Link>
+          </p>
         </div>
-      </div>
-
+      </motion.div>
       <style jsx global>{`
-        @keyframes float-slow { 0%,100%{transform:translate(0,0);}50%{transform:translate(20px,-20px);} }
-        @keyframes pulse-slow { 0%,100%{opacity:0.2;}50%{opacity:0.4;} }
-        @keyframes scale-in { 0%{transform:scale(0);}100%{transform:scale(1);} }
-        @keyframes slide-down { 0%{transform:translateY(-5px);opacity:0;}100%{transform:translateY(0);opacity:1;} }
-        @keyframes fade-in-up { 0%{opacity:0;transform:translateY(10px);}100%{opacity:1;transform:translateY(0);} }
-        .animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
-        .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
-        .animate-scale-in { animation: scale-in 0.3s ease forwards; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+        @keyframes slide-down { 0% { transform: translateY(-5px); opacity: 0; } 100% { transform: translateY(0); opacity: 1; } }
+        .animate-pulse { animation: pulse 2s ease-in-out infinite; }
         .animate-slide-down { animation: slide-down 0.3s ease forwards; }
-        .animate-fade-in-up { animation: fade-in-up 0.5s ease forwards; }
-        .animate-gradient { background-size: 400% 400%; animation: gradient 10s ease infinite; }
-        @keyframes gradient { 0%{background-position:0% 50%;}50%{background-position:100% 50%;}100%{background-position:0% 50%;} }
-        .animate-gradient-text { background: linear-gradient(90deg,#00ff7f,#1db954); -webkit-background-clip:text; -webkit-text-fill-color:transparent; animation: gradient 5s ease infinite; }
+        .font-inter { font-family: 'Inter', sans-serif; }
       `}</style>
     </div>
   );
