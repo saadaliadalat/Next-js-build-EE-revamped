@@ -69,11 +69,22 @@ export default function LoginPage() {
       });
       router.push('/dashboard');
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to sign in. Please try again.',
-        variant: 'destructive',
-      });
+      console.error('Sign in error:', error);
+      
+      // Check if error is about email confirmation
+      if (error.message && error.message.toLowerCase().includes('email')) {
+        toast({
+          title: 'Email Not Confirmed',
+          description: 'Please check your email and click the confirmation link.',
+          variant: 'destructive',
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: error.message || 'Failed to sign in. Please check your credentials.',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -83,6 +94,11 @@ export default function LoginPage() {
     const emailErr = validateEmail(email);
     if (emailErr) {
       setEmailError(emailErr);
+      toast({
+        title: 'Invalid Email',
+        description: 'Please enter a valid email address.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -91,9 +107,10 @@ export default function LoginPage() {
       await resendConfirmation(email);
       toast({
         title: 'Success',
-        description: 'Confirmation email resent. Check your inbox.',
+        description: 'Confirmation email sent! Check your inbox.',
       });
     } catch (error: any) {
+      console.error('Resend error:', error);
       toast({
         title: 'Error',
         description: error.message || 'Failed to resend confirmation email.',
@@ -234,7 +251,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={handleResendConfirmation}
-                  className="text-gray-200 hover:text-gray-100 hover:underline"
+                  className="text-gray-200 hover:text-gray-100 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={loading || !email || validateEmail(email) !== ''}
                 >
                   Resend confirmation email

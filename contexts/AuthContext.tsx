@@ -108,16 +108,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (error) throw error;
-
-    if (data.user && !data.user.email_confirmed_at) {
-      throw new Error('Please confirm your email before signing in.');
+    if (error) {
+      // Check if it's an email confirmation error
+      if (error.message.includes('Email not confirmed')) {
+        throw new Error('Please confirm your email before signing in. Check your inbox for the confirmation link.');
+      }
+      throw error;
     }
+
+    // If we get here, sign-in was successful (email is confirmed)
   };
 
   const resendConfirmation = async (email: string) => {

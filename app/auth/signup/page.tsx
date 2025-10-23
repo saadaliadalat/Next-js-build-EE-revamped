@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 
 interface Errors {
   firstName?: string;
@@ -95,6 +96,7 @@ export default function PremiumSignupPage() {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const firstNameRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -218,7 +220,8 @@ export default function PremiumSignupPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signUp({
+      console.log('Starting signup for:', formData.email);
+      const { data, error: signupError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
@@ -226,16 +229,18 @@ export default function PremiumSignupPage() {
             full_name: `${formData.firstName} ${formData.lastName}`,
             phone: formData.phone,
           },
-          emailRedirectTo: `${window.location.origin}/auth/confirm`, // Fixed: redirectTo -> emailRedirectTo
+          emailRedirectTo: `${window.location.origin}/auth/confirm`,
         },
       });
 
-      if (error || !data.user) {
-        toast.error(error?.message || 'Signup failed');
+      if (signupError || !data.user) {
+        console.error('Signup error:', signupError);
+        toast.error(signupError?.message || 'Signup failed');
         setLoading(false);
         return;
       }
 
+      console.log('Signup success, user:', data.user.id);
       let idFrontUrl = '';
       let idBackUrl = '';
       if (idFront && idBack) {
@@ -261,21 +266,34 @@ export default function PremiumSignupPage() {
       });
 
       if (profileError) {
+        console.error('Profile error:', profileError);
         toast.error('Profile save failed: ' + profileError.message);
         setLoading(false);
         return;
       }
 
+      console.log('Profile saved, logging in...');
+      const { error: loginError } = await supabase.auth.signInWithPassword({
+        email: formData.email,
+        password: formData.password,
+      });
+      if (loginError) {
+        console.error('Login error:', loginError);
+        throw loginError;
+      }
+
+      console.log('Login success');
       setSuccess(true);
       localStorage.removeItem('signupFormData');
-      toast.success('Account created! Please check your email to confirm.');
+      toast.success('Account created and logged in!');
+      router.push('/dashboard'); // Redirect after success
     } catch (err: any) {
-      console.error(err);
+      console.error('Unexpected error:', err);
       toast.error(err.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
-  }, [formData, idFront, idBack, validateStep2, uploadFile]);
+  }, [formData, idFront, idBack, validateStep2, uploadFile, router]);
 
   const nextStep = () => {
     if (validateStep1()) setStep(2);
@@ -343,7 +361,7 @@ export default function PremiumSignupPage() {
             transition={{ delay: 0.4 }}
             className="text-zinc-400 text-center mb-8"
           >
-            Your account has been created. Please check your email to confirm your account.
+            Your account has been created and you're logged in!
           </motion.p>
           <motion.button
             initial={{ opacity: 0, y: 20 }}
@@ -352,9 +370,9 @@ export default function PremiumSignupPage() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className="w-full px-6 py-3.5 bg-white text-black font-semibold rounded-xl transition-all duration-300 hover:bg-white/90"
-            onClick={() => (window.location.href = '/auth/login')}
+            onClick={() => router.push('/dashboard')}
           >
-            Go to Sign In
+            Go to Dashboard
           </motion.button>
         </motion.div>
       </div>
