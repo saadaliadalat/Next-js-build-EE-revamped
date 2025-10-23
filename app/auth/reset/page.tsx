@@ -1,98 +1,110 @@
 'use client';
 
-import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-import { TrendingUp, ArrowLeft } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'react-hot-toast';
+import { motion } from 'framer-motion';
+import { Lock, Loader2 } from 'lucide-react';
 
 export default function ResetPasswordPage() {
-  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
-  const { resetPassword } = useAuth();
-  const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  useEffect(() => {
+    // Check if the reset link is valid
+    const checkSession = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session) {
+        toast.error('Invalid or expired reset link.', { duration: 4000 });
+        setTimeout(() => router.push('/auth/login'), 2000);
+      }
+    };
+    checkSession();
+  }, [router]);
+
+  const handleResetPassword = async () => {
+    if (password !== confirmPassword) {
+      toast.error('Passwords do not match.');
+      return;
+    }
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters.');
+      return;
+    }
+
     setLoading(true);
-
     try {
-      await resetPassword(email);
-      setSent(true);
-      toast({
-        title: 'Reset email sent!',
-        description: 'Check your email for password reset instructions.',
-      });
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to send reset email. Please try again.',
-        variant: 'destructive',
-      });
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      toast.success('Password updated successfully! Redirecting to login...', { duration: 4000 });
+      setTimeout(() => router.push('/auth/login'), 2000);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update password.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 flex flex-col items-center">
-          <div className="flex items-center space-x-2 mb-4">
-            <TrendingUp className="h-8 w-8 text-primary" />
-            <span className="text-2xl font-bold">EquityEdge<span className="text-primary">ai</span></span>
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="relative w-full max-w-md bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl"
+        role="form"
+        aria-labelledby="reset-title"
+      >
+        <motion.h1
+          id="reset-title"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="text-2xl font-bold text-center mb-6"
+        >
+          Reset Your Password
+        </motion.h1>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-zinc-300 flex items-center gap-2 mb-2">
+              <Lock className="h-4 w-4" /> New Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-white/30"
+              placeholder="Enter new password"
+            />
           </div>
-          <CardTitle className="text-2xl">Reset your password</CardTitle>
-          <CardDescription>
-            {sent
-              ? 'Check your email for reset instructions'
-              : 'Enter your email to receive reset instructions'
-            }
-          </CardDescription>
-        </CardHeader>
-        {!sent ? (
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="your@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                />
-              </div>
-            </CardContent>
-            <CardFooter className="flex flex-col space-y-4">
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? 'Sending...' : 'Send Reset Instructions'}
-              </Button>
-              <Button variant="ghost" asChild className="w-full">
-                <Link href="/auth/login">
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back to Sign In
-                </Link>
-              </Button>
-            </CardFooter>
-          </form>
-        ) : (
-          <CardFooter className="flex flex-col space-y-4">
-            <Button asChild className="w-full">
-              <Link href="/auth/login">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Return to Sign In
-              </Link>
-            </Button>
-          </CardFooter>
-        )}
-      </Card>
+          <div>
+            <label className="text-sm font-medium text-zinc-300 flex items-center gap-2 mb-2">
+              <Lock className="h-4 w-4" /> Confirm Password
+            </label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl focus:outline-none focus:border-white/30"
+              placeholder="Confirm new password"
+            />
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
+            onClick={handleResetPassword}
+            disabled={loading}
+            className="w-full px-6 py-3 bg-white text-black font-semibold rounded-xl disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reset Password'}
+          </motion.button>
+        </div>
+      </motion.div>
     </div>
   );
 }

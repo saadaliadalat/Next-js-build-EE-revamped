@@ -17,10 +17,11 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signUp: (email: string, password: string, fullName: string, phone?: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  resendConfirmation: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,7 +35,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isSubscribed = true;
 
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isSubscribed) return;
 
@@ -48,7 +48,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -80,65 +79,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) {
         console.error('Profile fetch error:', error);
-        // Still set profile to null if not found
-        if (isMounted()) setProfile(null);
+        setProfile(null);
       } else {
-        if (isMounted()) setProfile(data);
+        setProfile(data);
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
-      if (isMounted()) setProfile(null);
+      setProfile(null);
     } finally {
-      if (isMounted()) setLoading(false);
+      setLoading(false);
     }
   };
 
-  // Helper to check if component is still mounted
-  const isMounted = () => {
-    // We can't directly track mount state here without useRef,
-    // but since we control setLoading only in finally,
-    // and setLoading(false) is safe to call multiple times,
-    // we'll rely on React ignoring state updates on unmounted components (in dev it warns, but safe in prod).
-    return true;
+  const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
+    // Note: The trigger handle_new_user will automatically create profile + balance
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName, phone },
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      },
+    });
+
+    if (error) throw error;
+    
+    // Profile and balance are created by trigger - no manual insert needed
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({
+  const signIn = async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) throw error;
 
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert({
-          id: data.user.id,
-          full_name: fullName,
-          is_admin: false,
-        });
-
-      if (profileError) throw profileError;
-
-      const { error: balanceError } = await supabase
-        .from('balances')
-        .insert({
-          user_id: data.user.id,
-          amount: 0,
-          currency: 'USD',
-        });
-
-      if (balanceError) throw balanceError;
+    if (data.user && !data.user.email_confirmed_at) {
+      throw new Error('Please confirm your email before signing in.');
     }
   };
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+  const resendConfirmation = async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
       email,
-      password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      },
     });
+    if (error) throw error;
+  };
 
+  const resetPassword = async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    });
     if (error) throw error;
   };
 
@@ -147,14 +143,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
     setProfile(null);
     router.push('/');
-  };
-
-  const resetPassword = async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
-
-    if (error) throw error;
   };
 
   return (
@@ -167,6 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         resetPassword,
+        resendConfirmation,
       }}
     >
       {children}

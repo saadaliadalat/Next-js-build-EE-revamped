@@ -17,30 +17,26 @@ export default function LoginPage() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn } = useAuth();
+  const { signIn, resendConfirmation } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const emailRef = useRef<HTMLInputElement>(null);
 
-  // Focus email input on mount
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
 
-  // Real-time email validation
   const validateEmail = (value: string) => {
     if (!value) return 'Email is required';
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Invalid email format';
     return '';
   };
 
-  // Real-time password validation
   const validatePassword = (value: string) => {
     if (!value) return 'Password is required';
     return '';
   };
 
-  // Handle input changes with validation
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setEmail(value);
@@ -83,9 +79,33 @@ export default function LoginPage() {
     }
   };
 
+  const handleResendConfirmation = async () => {
+    const emailErr = validateEmail(email);
+    if (emailErr) {
+      setEmailError(emailErr);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await resendConfirmation(email);
+      toast({
+        title: 'Success',
+        description: 'Confirmation email resent. Check your inbox.',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to resend confirmation email.',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex items-center justify-center p-4 overflow-hidden">
-      {/* Background effects */}
       <motion.div
         className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.015),transparent_70%)]"
         initial={{ opacity: 0 }}
@@ -125,12 +145,12 @@ export default function LoginPage() {
               </span>
             </div>
             <h1 className="text-3xl font-bold text-white text-center mb-2">Sign In</h1>
-            <p className="text-zinc-500 text-center mb-6">
-              Access your trading account
-            </p>
+            <p className="text-zinc-500 text-center mb-6">Access your trading account</p>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-zinc-500">Email</Label>
+                <Label htmlFor="email" className="text-zinc-500">
+                  Email
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -160,7 +180,9 @@ export default function LoginPage() {
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="password" className="text-zinc-500">Password</Label>
+                  <Label htmlFor="password" className="text-zinc-500">
+                    Password
+                  </Label>
                   <Link
                     href="/auth/reset"
                     className="text-xs text-zinc-500 hover:text-gray-200 transition-colors"
@@ -208,6 +230,17 @@ export default function LoginPage() {
                 )}
               </Button>
               <p className="text-sm text-center text-zinc-500 mt-4">
+                Email not confirmed?{' '}
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  className="text-gray-200 hover:text-gray-100 hover:underline"
+                  disabled={loading || !email || validateEmail(email) !== ''}
+                >
+                  Resend confirmation email
+                </button>
+              </p>
+              <p className="text-sm text-center text-zinc-500 mt-2">
                 Don&apos;t have an account?{' '}
                 <Link href="/auth/signup" className="text-gray-200 hover:text-gray-100 hover:underline">
                   Sign up
@@ -220,18 +253,36 @@ export default function LoginPage() {
 
       <style jsx global>{`
         @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
         @keyframes pulse {
-          0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3); }
-          70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+          0% {
+            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3);
+          }
+          70% {
+            box-shadow: 0 0 0 10px rgba(255, 255, 255, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+          }
         }
         @keyframes gradient {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
+          0% {
+            background-position: 0% 50%;
+          }
+          50% {
+            background-position: 100% 50%;
+          }
+          100% {
+            background-position: 0% 50%;
+          }
         }
 
         .animate-gradient {

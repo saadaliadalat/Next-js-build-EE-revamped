@@ -20,12 +20,11 @@ import {
   Upload,
   Check,
   ArrowLeft,
-  Phone
+  Phone,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-hot-toast';
 
-// ===== TYPES =====
 interface Errors {
   firstName?: string;
   lastName?: string;
@@ -60,7 +59,6 @@ interface FormData {
   confirmPassword: string;
 }
 
-// ===== DEFAULTS =====
 const DEFAULT_FORM_DATA: FormData = {
   firstName: '',
   lastName: '',
@@ -74,16 +72,15 @@ const DEFAULT_FORM_DATA: FormData = {
   idType: '',
   idNumber: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
 };
 
 const NATIONALITIES = ['Indian', 'American', 'British', 'Canadian', 'Australian', 'Other'] as const;
 const ID_TYPES = {
   Indian: ['National ID (Aadhaar)', 'Driving License', 'Passport', 'Residence Permit', 'Voter ID'],
-  default: ['Passport', 'National ID', 'Driving License']
+  default: ['Passport', 'National ID', 'Driving License'],
 } as const;
 
-// ===== MAIN COMPONENT =====
 export default function PremiumSignupPage() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
@@ -97,10 +94,8 @@ export default function PremiumSignupPage() {
   const [errors, setErrors] = useState<Errors>({});
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-
   const firstNameRef = useRef<HTMLInputElement>(null);
 
-  // ===== INIT: LOAD FROM LOCALSTORAGE SAFELY =====
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -109,26 +104,22 @@ export default function PremiumSignupPage() {
 
     try {
       const parsed = JSON.parse(saved);
-      // Merge with defaults to ensure all fields exist and are strings
-      setFormData(prev => ({ ...DEFAULT_FORM_DATA, ...prev, ...parsed }));
+      setFormData(prev => ({ ...DEFAULT_FORM_DATA, ...parsed }));
     } catch (e) {
       console.warn('Failed to parse saved signup form data', e);
     }
   }, []);
 
-  // ===== PERSIST TO LOCALSTORAGE =====
   useEffect(() => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('signupFormData', JSON.stringify(formData));
     }
   }, [formData]);
 
-  // ===== FOCUS MANAGEMENT =====
   useEffect(() => {
     if (step === 1) firstNameRef.current?.focus();
   }, [step]);
 
-  // ===== HELPERS =====
   const updateField = useCallback((field: keyof FormData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
@@ -164,7 +155,6 @@ export default function PremiumSignupPage() {
     reader.readAsDataURL(file);
   }, []);
 
-  // ===== VALIDATION =====
   const validateStep1 = useCallback(() => {
     const newErrors: Errors = {};
     const { firstName, lastName, email, phone, password, confirmPassword } = formData;
@@ -198,15 +188,7 @@ export default function PremiumSignupPage() {
 
   const validateStep2 = useCallback(() => {
     const newErrors: Errors = {};
-    const {
-      city,
-      address,
-      zipCode,
-      nationality,
-      dateOfBirth,
-      idType,
-      idNumber
-    } = formData;
+    const { city, address, zipCode, nationality, dateOfBirth, idType, idNumber } = formData;
 
     if (!city.trim()) newErrors.city = 'City is required';
     if (!address.trim()) newErrors.address = 'Address is required';
@@ -222,7 +204,6 @@ export default function PremiumSignupPage() {
     return Object.keys(newErrors).length === 0;
   }, [formData, idFront, idBack]);
 
-  // ===== FILE UPLOAD TO SUPABASE =====
   const uploadFile = useCallback(async (file: File, userId: string, type: 'front' | 'back') => {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const path = `${userId}/${type}.${ext}`;
@@ -232,7 +213,6 @@ export default function PremiumSignupPage() {
     return data.publicUrl;
   }, []);
 
-  // ===== SUBMIT =====
   const handleSubmit = useCallback(async () => {
     if (!validateStep2()) return;
     setLoading(true);
@@ -244,9 +224,10 @@ export default function PremiumSignupPage() {
         options: {
           data: {
             full_name: `${formData.firstName} ${formData.lastName}`,
-            phone: formData.phone
-          }
-        }
+            phone: formData.phone,
+          },
+          emailRedirectTo: `${window.location.origin}/auth/confirm`, // Fixed: redirectTo -> emailRedirectTo
+        },
       });
 
       if (error || !data.user) {
@@ -276,7 +257,7 @@ export default function PremiumSignupPage() {
         id_number: formData.idNumber,
         id_front_url: idFrontUrl,
         id_back_url: idBackUrl,
-        is_admin: false
+        is_admin: false,
       });
 
       if (profileError) {
@@ -287,10 +268,10 @@ export default function PremiumSignupPage() {
 
       setSuccess(true);
       localStorage.removeItem('signupFormData');
-      toast.success('Account created! Redirecting...');
-    } catch (err) {
+      toast.success('Account created! Please check your email to confirm.');
+    } catch (err: any) {
       console.error(err);
-      toast.error('An unexpected error occurred');
+      toast.error(err.message || 'An unexpected error occurred');
     } finally {
       setLoading(false);
     }
@@ -302,7 +283,6 @@ export default function PremiumSignupPage() {
 
   const prevStep = () => setStep(1);
 
-  // ===== PASSWORD STRENGTH =====
   const getPasswordStrength = () => {
     const len = formData.password.length;
     if (len === 0) return 0;
@@ -314,7 +294,6 @@ export default function PremiumSignupPage() {
 
   const passwordStrength = getPasswordStrength();
 
-  // ===== STYLES =====
   const inputClass = (field: keyof Errors) =>
     `w-full px-4 py-3.5 bg-white/5 backdrop-blur-sm border rounded-xl text-white placeholder:text-zinc-500 focus:outline-none transition-all duration-300 ${
       errors[field]
@@ -327,7 +306,6 @@ export default function PremiumSignupPage() {
   const labelClass = 'text-sm font-medium text-zinc-300 flex items-center gap-2 mb-2';
   const errorClass = 'text-red-400 text-xs flex items-center gap-1 mt-2';
 
-  // ===== SUCCESS VIEW =====
   if (success) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
@@ -365,7 +343,7 @@ export default function PremiumSignupPage() {
             transition={{ delay: 0.4 }}
             className="text-zinc-400 text-center mb-8"
           >
-            Your account has been successfully created.
+            Your account has been created. Please check your email to confirm your account.
           </motion.p>
           <motion.button
             initial={{ opacity: 0, y: 20 }}
@@ -374,16 +352,15 @@ export default function PremiumSignupPage() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className="w-full px-6 py-3.5 bg-white text-black font-semibold rounded-xl transition-all duration-300 hover:bg-white/90"
-            onClick={() => (window.location.href = '/dashboard')}
+            onClick={() => (window.location.href = '/auth/login')}
           >
-            Go to Dashboard
+            Go to Sign In
           </motion.button>
         </motion.div>
       </div>
     );
   }
 
-  // ===== MAIN FORM =====
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
@@ -438,7 +415,6 @@ export default function PremiumSignupPage() {
                 transition={{ duration: 0.3 }}
                 className="space-y-5"
               >
-                {/* Name */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="firstName" className={labelClass}>
@@ -485,7 +461,6 @@ export default function PremiumSignupPage() {
                   </div>
                 </div>
 
-                {/* Email */}
                 <div>
                   <label htmlFor="email" className={labelClass}>
                     <Mail className="h-4 w-4" /> Email
@@ -508,7 +483,6 @@ export default function PremiumSignupPage() {
                   )}
                 </div>
 
-                {/* Phone */}
                 <div>
                   <label htmlFor="phone" className={labelClass}>
                     <Phone className="h-4 w-4" /> Phone Number
@@ -531,7 +505,6 @@ export default function PremiumSignupPage() {
                   )}
                 </div>
 
-                {/* Password */}
                 <div>
                   <label htmlFor="password" className={labelClass}>
                     <Lock className="h-4 w-4" /> Password
@@ -584,7 +557,6 @@ export default function PremiumSignupPage() {
                   )}
                 </div>
 
-                {/* Confirm Password */}
                 <div>
                   <label htmlFor="confirmPassword" className={labelClass}>
                     <Lock className="h-4 w-4" /> Confirm Password
@@ -637,7 +609,6 @@ export default function PremiumSignupPage() {
                 transition={{ duration: 0.3 }}
                 className="space-y-5"
               >
-                {/* City & Address */}
                 <div>
                   <label htmlFor="city" className={labelClass}>
                     <MapPin className="h-4 w-4" /> City
@@ -682,7 +653,6 @@ export default function PremiumSignupPage() {
                   )}
                 </div>
 
-                {/* Zip & Nationality */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="zipCode" className={labelClass}>
@@ -737,7 +707,6 @@ export default function PremiumSignupPage() {
                   </div>
                 </div>
 
-                {/* DOB */}
                 <div>
                   <label htmlFor="dateOfBirth" className={labelClass}>
                     <Calendar className="h-4 w-4" /> Date of Birth
@@ -759,7 +728,6 @@ export default function PremiumSignupPage() {
                   )}
                 </div>
 
-                {/* ID Type & Number */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="idType" className={labelClass}>
@@ -776,14 +744,13 @@ export default function PremiumSignupPage() {
                       aria-required="true"
                     >
                       <option value="">Select</option>
-                      {(formData.nationality === 'Indian'
-                        ? ID_TYPES.Indian
-                        : ID_TYPES.default
-                      ).map((type) => (
-                        <option key={type} value={type} className="bg-zinc-900">
-                          {type}
-                        </option>
-                      ))}
+                      {(formData.nationality === 'Indian' ? ID_TYPES.Indian : ID_TYPES.default).map(
+                        (type) => (
+                          <option key={type} value={type} className="bg-zinc-900">
+                            {type}
+                          </option>
+                        ),
+                      )}
                     </select>
                     {errors.idType && (
                       <p className={errorClass}>
@@ -815,7 +782,6 @@ export default function PremiumSignupPage() {
                   </div>
                 </div>
 
-                {/* ID Uploads */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label htmlFor="idFront" className={labelClass}>
@@ -916,7 +882,6 @@ export default function PremiumSignupPage() {
                   </div>
                 </div>
 
-                {/* Navigation */}
                 <div className="flex gap-3 mt-6">
                   <motion.button
                     whileHover={{ scale: 1.01 }}
@@ -949,17 +914,13 @@ export default function PremiumSignupPage() {
             )}
           </AnimatePresence>
 
-          {/* Footer */}
           <div className="mt-6 pt-6 border-t border-white/10">
             <p className="text-xs text-center text-zinc-400 flex items-center justify-center gap-2 mb-4">
               <Lock className="h-3 w-3" /> Your information is securely encrypted and never shared.
             </p>
             <p className="text-sm text-center text-zinc-400">
               Already have an account?{' '}
-              <a
-                href="/auth/login"
-                className="text-white hover:underline font-medium transition-colors"
-              >
+              <a href="/auth/login" className="text-white hover:underline font-medium transition-colors">
                 Sign in
               </a>
             </p>
@@ -967,7 +928,6 @@ export default function PremiumSignupPage() {
         </div>
       </motion.div>
 
-      {/* Fonts & Styles */}
       <style jsx global>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         * {
