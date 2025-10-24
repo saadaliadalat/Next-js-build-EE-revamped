@@ -15,10 +15,9 @@ export default function ConfirmPage() {
   useEffect(() => {
     const handleEmailConfirmation = async () => {
       try {
-        // Check for error in URL params
-        const error = searchParams?.get('error') || null;
-        const errorDescription = searchParams?.get('error_description') || null;
-        
+        const error = searchParams?.get('error');
+        const errorDescription = searchParams?.get('error_description');
+
         if (error) {
           console.error('Email confirmation error:', error, errorDescription);
           setStatus('error');
@@ -27,7 +26,7 @@ export default function ConfirmPage() {
           return;
         }
 
-        // Get the current session - Supabase automatically handles token exchange
+        // Exchange the confirmation token for a session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
         if (sessionError) {
@@ -38,17 +37,13 @@ export default function ConfirmPage() {
           return;
         }
 
-        if (session && session.user) {
-          // User is confirmed and signed in!
-          console.log('User confirmed and signed in:', session.user.email);
+        if (session?.user) {
+          // ✅ Confirmed AND signed in → go to dashboard
           setStatus('success');
           setMessage('Email verified! Redirecting to dashboard...');
-          
-          // Sign out first, then redirect to login (so they can sign in fresh)
-          await supabase.auth.signOut();
-          setTimeout(() => router.push('/auth/login'), 2000);
+          setTimeout(() => router.push('/dashboard'), 2000);
         } else {
-          // No session - might already be confirmed
+          // Confirmed but no active session (e.g. opened link in new browser)
           setStatus('success');
           setMessage('Email confirmed! Please sign in to continue.');
           setTimeout(() => router.push('/auth/login'), 2000);
@@ -61,10 +56,9 @@ export default function ConfirmPage() {
       }
     };
 
-    // Small delay to ensure URL params are loaded
     const timer = setTimeout(() => {
       handleEmailConfirmation();
-    }, 500);
+    }, 300); // Reduced delay
 
     return () => clearTimeout(timer);
   }, [router, searchParams]);
