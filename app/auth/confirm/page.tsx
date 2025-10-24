@@ -8,39 +8,35 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 export default function ConfirmPage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // May be null during SSR or hydration
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Verifying your email...');
 
   useEffect(() => {
-    // Wait until searchParams is available
-    if (typeof window === 'undefined' || !searchParams) {
-      return;
+    // Wait for searchParams to be ready
+    if (!searchParams) return;
+
+    const token_hash = searchParams.get('token_hash');
+    const type = searchParams.get('type');
+
+    // If no token, just redirect (maybe already confirmed)
+    if (!token_hash || !type) {
+      setStatus('success');
+      setMessage('Email confirmed! Please sign in to continue.');
+      const timer = setTimeout(() => router.push('/auth/login'), 2000);
+      return () => clearTimeout(timer);
     }
 
+    // Process the confirmation
     const confirmEmail = async () => {
       try {
-        // Safely extract params
-        const token_hash = searchParams.get('token_hash');
-        const type = searchParams.get('type');
-        // const next = searchParams.get('next') ?? '/';
-
-        // If no token, assume already confirmed or invalid link
-        if (!token_hash || !type) {
-          setStatus('success');
-          setMessage('Email confirmed! Please sign in to continue.');
-          setTimeout(() => router.push('/auth/login'), 2000);
-          return;
-        }
-
-        // Verify the OTP (confirmation token)
         const { error } = await supabase.auth.verifyOtp({
           token_hash,
-          type: type as any, // 'signup' is the expected type
+          type: type as any, // 'signup' is expected
         });
 
         if (error) {
-          console.error('Confirmation error:', error);
+          console.error('Confirmation failed:', error);
           setStatus('error');
           setMessage('Invalid or expired confirmation link.');
           setTimeout(() => router.push('/auth/login'), 3000);
@@ -50,7 +46,7 @@ export default function ConfirmPage() {
         setStatus('success');
         setMessage('Email verified! Redirecting to sign in...');
         setTimeout(() => router.push('/auth/login'), 2000);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Unexpected error:', err);
         setStatus('error');
         setMessage('An unexpected error occurred.');
@@ -58,9 +54,8 @@ export default function ConfirmPage() {
       }
     };
 
-    const timer = setTimeout(confirmEmail, 100);
-    return () => clearTimeout(timer);
-  }, [router, searchParams]); // Re-run if searchParams changes
+    confirmEmail();
+  }, [router, searchParams]);
 
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
