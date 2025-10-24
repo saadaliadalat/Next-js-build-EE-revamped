@@ -21,7 +21,6 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  resendConfirmation: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -97,7 +96,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: {
         data: { full_name: fullName, phone },
-        emailRedirectTo: `${window.location.origin}/auth/confirm`,
       },
     });
 
@@ -110,24 +108,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
     });
 
-    if (error) {
-      // Supabase returns this exact message when "Confirm email before sign-in" is enabled
-      if (error.message.includes('Email not confirmed')) {
-        throw new Error('Please confirm your email before signing in. Check your inbox for the confirmation link.');
-      }
-      throw error;
-    }
-    // Success: user is signed in and email is confirmed
-  };
-
-  const resendConfirmation = async (email: string) => {
-    const { error } = await supabase.auth.resend({
-      type: 'signup',
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/confirm`,
-      },
-    });
     if (error) throw error;
   };
 
@@ -155,7 +135,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         resetPassword,
-        resendConfirmation,
       }}
     >
       {children}
