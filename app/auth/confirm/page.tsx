@@ -8,30 +8,35 @@ import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 
 export default function ConfirmPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // May be null during SSR or hydration
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Verifying your email...');
 
   useEffect(() => {
+    // Wait until searchParams is available
+    if (typeof window === 'undefined' || !searchParams) {
+      return;
+    }
+
     const confirmEmail = async () => {
       try {
-        // Extract token and type from URL
+        // Safely extract params
         const token_hash = searchParams.get('token_hash');
         const type = searchParams.get('type');
-        const next = searchParams.get('next') ?? '/';
+        // const next = searchParams.get('next') ?? '/';
 
+        // If no token, assume already confirmed or invalid link
         if (!token_hash || !type) {
-          // No token → maybe already confirmed or invalid link
           setStatus('success');
           setMessage('Email confirmed! Please sign in to continue.');
           setTimeout(() => router.push('/auth/login'), 2000);
           return;
         }
 
-        // Let Supabase process the confirmation
+        // Verify the OTP (confirmation token)
         const { error } = await supabase.auth.verifyOtp({
           token_hash,
-          type: type as any, // 'signup' | 'email_change'
+          type: type as any, // 'signup' is the expected type
         });
 
         if (error) {
@@ -42,7 +47,6 @@ export default function ConfirmPage() {
           return;
         }
 
-        // Success: email is now confirmed
         setStatus('success');
         setMessage('Email verified! Redirecting to sign in...');
         setTimeout(() => router.push('/auth/login'), 2000);
@@ -54,10 +58,9 @@ export default function ConfirmPage() {
       }
     };
 
-    // Small delay to ensure URL params are ready
     const timer = setTimeout(confirmEmail, 100);
     return () => clearTimeout(timer);
-  }, [router, searchParams]);
+  }, [router, searchParams]); // Re-run if searchParams changes
 
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
