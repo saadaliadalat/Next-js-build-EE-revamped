@@ -1,48 +1,79 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { CheckCircle2, Loader2, XCircle, TrendingUp } from 'lucide-react';
 
 function ConfirmContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('Verifying your email...');
 
   useEffect(() => {
     const confirmEmail = async () => {
       try {
-        // Get token_hash and type from URL
-        const token_hash = searchParams?.get('token_hash');
-        const type = searchParams?.get('type');
+        // Check for errors in URL hash (Supabase redirects errors this way)
+        const hash = window.location.hash.substring(1);
+        const params = new URLSearchParams(hash);
+        const error = params.get('error');
+        const errorDescription = params.get('error_description');
+
+        if (error) {
+          console.error('URL error:', error, errorDescription);
+          setStatus('error');
+          
+          // Handle database errors specifically
+          if (errorDescription?.includes('Database')) {
+            setMessage('Account created but profile setup failed. Please contact support or try signing in.');
+          } else if (errorDescription?.includes('expired')) {
+            setMessage('This confirmation link has expired. Please request a new one.');
+          } else {
+            setMessage(errorDescription?.replace(/\+/g, ' ') || 'Verification failed. Please try again.');
+          }
+          
+          setTimeout(() => router.push('/auth/login'), 5000);
+          return;
+        }
+
+        // Get token_hash and type from URL query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const token_hash = urlParams.get('token_hash');
+        const type = urlParams.get('type');
 
         console.log('Confirmation attempt:', { token_hash: !!token_hash, type });
 
-        // If no token_hash, this might be a direct visit or already confirmed
+        // If no token_hash, check if we're already authenticated
         if (!token_hash || !type) {
-          setStatus('error');
-          setMessage('Invalid confirmation link. Please try signing in or request a new confirmation email.');
-          setTimeout(() => router.push('/auth/login'), 3000);
+          const { data: { session } } = await supabase.auth.getSession();
+          
+          if (session) {
+            setStatus('success');
+            setMessage('You are already signed in! Redirecting...');
+            setTimeout(() => router.push('/dashboard'), 2000);
+          } else {
+            setStatus('error');
+            setMessage('Invalid confirmation link. Please try signing in or request a new confirmation email.');
+            setTimeout(() => router.push('/auth/login'), 3000);
+          }
           return;
         }
 
         // Verify the OTP token to confirm email
-        const { data, error } = await supabase.auth.verifyOtp({
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({
           token_hash,
           type: type as 'signup' | 'email',
         });
 
-        if (error) {
-          console.error('Confirmation error:', error);
+        if (verifyError) {
+          console.error('Confirmation error:', verifyError);
           
           // Check for specific error types
-          if (error.message.includes('expired')) {
+          if (verifyError.message.includes('expired')) {
             setStatus('error');
             setMessage('This confirmation link has expired. Please request a new one.');
-          } else if (error.message.includes('already been used')) {
+          } else if (verifyError.message.includes('already been used')) {
             setStatus('success');
             setMessage('Email already confirmed! Redirecting to sign in...');
           } else {
@@ -71,7 +102,7 @@ function ConfirmContent() {
     };
 
     confirmEmail();
-  }, [router, searchParams]);
+  }, [router]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white flex items-center justify-center p-4 relative overflow-hidden">
@@ -156,7 +187,7 @@ function ConfirmContent() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.4 }}
-              className="text-zinc-400 text-center"
+              className="text-zinc-400 text-center text-sm leading-relaxed"
             >
               {message}
             </motion.p>
