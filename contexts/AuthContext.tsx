@@ -92,8 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string, fullName: string, phone?: string) => {
-    // Note: The trigger handle_new_user will automatically create profile + balance
-    const { data, error } = await supabase.auth.signUp({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -103,8 +102,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) throw error;
-    
-    // Profile and balance are created by trigger - no manual insert needed
   };
 
   const signIn = async (email: string, password: string) => {
@@ -114,14 +111,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) {
-      // Check if it's an email confirmation error
+      // Supabase returns this exact message when "Confirm email before sign-in" is enabled
       if (error.message.includes('Email not confirmed')) {
         throw new Error('Please confirm your email before signing in. Check your inbox for the confirmation link.');
       }
       throw error;
     }
-
-    // If we get here, sign-in was successful (email is confirmed)
+    // Success: user is signed in and email is confirmed
   };
 
   const resendConfirmation = async (email: string) => {
