@@ -13,53 +13,49 @@ export default function ConfirmPage() {
   const [message, setMessage] = useState('Verifying your email...');
 
   useEffect(() => {
-    const handleEmailConfirmation = async () => {
+    const confirmEmail = async () => {
       try {
-        const error = searchParams?.get('error');
-        const errorDescription = searchParams?.get('error_description');
+        // Extract token and type from URL
+        const token_hash = searchParams.get('token_hash');
+        const type = searchParams.get('type');
+        const next = searchParams.get('next') ?? '/';
 
-        if (error) {
-          console.error('Email confirmation error:', error, errorDescription);
-          setStatus('error');
-          setMessage(errorDescription || 'Email verification failed. Please try again.');
-          setTimeout(() => router.push('/auth/login'), 3000);
-          return;
-        }
-
-        // Exchange the confirmation token for a session
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-        if (sessionError) {
-          console.error('Session error:', sessionError);
-          setStatus('error');
-          setMessage('Verification failed. Please try signing in.');
-          setTimeout(() => router.push('/auth/login'), 3000);
-          return;
-        }
-
-        if (session?.user) {
-          // ✅ Confirmed AND signed in → go to dashboard
-          setStatus('success');
-          setMessage('Email verified! Redirecting to dashboard...');
-          setTimeout(() => router.push('/dashboard'), 2000);
-        } else {
-          // Confirmed but no active session (e.g. opened link in new browser)
+        if (!token_hash || !type) {
+          // No token → maybe already confirmed or invalid link
           setStatus('success');
           setMessage('Email confirmed! Please sign in to continue.');
           setTimeout(() => router.push('/auth/login'), 2000);
+          return;
         }
+
+        // Let Supabase process the confirmation
+        const { error } = await supabase.auth.verifyOtp({
+          token_hash,
+          type: type as any, // 'signup' | 'email_change'
+        });
+
+        if (error) {
+          console.error('Confirmation error:', error);
+          setStatus('error');
+          setMessage('Invalid or expired confirmation link.');
+          setTimeout(() => router.push('/auth/login'), 3000);
+          return;
+        }
+
+        // Success: email is now confirmed
+        setStatus('success');
+        setMessage('Email verified! Redirecting to sign in...');
+        setTimeout(() => router.push('/auth/login'), 2000);
       } catch (err: any) {
         console.error('Unexpected error:', err);
         setStatus('error');
-        setMessage('An unexpected error occurred. Please try signing in.');
+        setMessage('An unexpected error occurred.');
         setTimeout(() => router.push('/auth/login'), 3000);
       }
     };
 
-    const timer = setTimeout(() => {
-      handleEmailConfirmation();
-    }, 300); // Reduced delay
-
+    // Small delay to ensure URL params are ready
+    const timer = setTimeout(confirmEmail, 100);
     return () => clearTimeout(timer);
   }, [router, searchParams]);
 
