@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Loader2,
   TrendingUp,
   Eye,
   EyeOff,
-  CheckCircle2,
   XCircle,
   Mail,
   Lock,
@@ -53,7 +52,6 @@ export default function PremiumSignupPage() {
   const [focusedField, setFocusedField] = useState<keyof FormData | ''>('');
   const [errors, setErrors] = useState<Errors>({});
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
   const firstNameRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -105,7 +103,8 @@ export default function PremiumSignupPage() {
     setLoading(true);
 
     try {
-      const { error: signupError } = await supabase.auth.signUp({
+      // Sign up the user (no email confirmation required)
+      const { data, error: signupError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
@@ -113,7 +112,6 @@ export default function PremiumSignupPage() {
             full_name: `${formData.firstName} ${formData.lastName}`,
             phone: formData.phone,
           },
-          emailRedirectTo: `${window.location.origin}/auth/confirm`,
         },
       });
 
@@ -123,15 +121,17 @@ export default function PremiumSignupPage() {
         return;
       }
 
-      setSuccess(true);
-      toast.success('Account created! Please check your email to confirm.');
+      // Account created successfully - redirect to login
+      toast.success('Account created successfully! Please sign in.');
+      router.push('/auth/login');
+      
     } catch (err: any) {
       console.error('Unexpected error:', err);
       toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [formData, validateForm]);
+  }, [formData, validateForm, router]);
 
   const getPasswordStrength = () => {
     const len = formData.password.length;
@@ -155,61 +155,6 @@ export default function PremiumSignupPage() {
 
   const labelClass = 'text-sm font-medium text-zinc-300 flex items-center gap-2 mb-2';
   const errorClass = 'text-red-400 text-xs flex items-center gap-1 mt-2';
-
-  if (success) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
-          className="relative w-full max-w-md bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl"
-          role="alertdialog"
-          aria-labelledby="success-title"
-        >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.2, type: 'spring' }}
-            className="flex justify-center mb-6"
-          >
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
-              <CheckCircle2 className="h-12 w-12 text-white" />
-            </div>
-          </motion.div>
-          <motion.h1
-            id="success-title"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="text-2xl font-bold text-center mb-3"
-          >
-            Welcome, {formData.firstName}!
-          </motion.h1>
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.4 }}
-            className="text-zinc-400 text-center mb-8"
-          >
-            Please check your inbox to confirm your email address.
-          </motion.p>
-          <motion.button
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full px-6 py-3.5 bg-white text-black font-semibold rounded-xl transition-all duration-300 hover:bg-white/90"
-            onClick={() => router.push('/auth/login')}
-          >
-            Go to Sign In
-          </motion.button>
-        </motion.div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
