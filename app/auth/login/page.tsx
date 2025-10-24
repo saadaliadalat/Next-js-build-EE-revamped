@@ -17,7 +17,7 @@ export default function LoginPage() {
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, resendConfirmation } = useAuth();
+  const { signIn } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const emailRef = useRef<HTMLInputElement>(null);
@@ -70,50 +70,9 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (error: any) {
       console.error('Sign in error:', error);
-      
-      // Check if error is about email confirmation
-      if (error.message && error.message.toLowerCase().includes('email')) {
-        toast({
-          title: 'Email Not Confirmed',
-          description: 'Please check your email and click the confirmation link.',
-          variant: 'destructive',
-        });
-      } else {
-        toast({
-          title: 'Error',
-          description: error.message || 'Failed to sign in. Please check your credentials.',
-          variant: 'destructive',
-        });
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleResendConfirmation = async () => {
-    const emailErr = validateEmail(email);
-    if (emailErr) {
-      setEmailError(emailErr);
-      toast({
-        title: 'Invalid Email',
-        description: 'Please enter a valid email address.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await resendConfirmation(email);
-      toast({
-        title: 'Success',
-        description: 'Confirmation email sent! Check your inbox.',
-      });
-    } catch (error: any) {
-      console.error('Resend error:', error);
       toast({
         title: 'Error',
-        description: error.message || 'Failed to resend confirmation email.',
+        description: error.message || 'Failed to sign in. Please check your credentials.',
         variant: 'destructive',
       });
     } finally {
@@ -247,17 +206,6 @@ export default function LoginPage() {
                 )}
               </Button>
               <p className="text-sm text-center text-zinc-500 mt-4">
-                Email not confirmed?{' '}
-                <button
-                  type="button"
-                  onClick={handleResendConfirmation}
-                  className="text-gray-200 hover:text-gray-100 hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
-                  disabled={loading || !email || validateEmail(email) !== ''}
-                >
-                  Resend confirmation email
-                </button>
-              </p>
-              <p className="text-sm text-center text-zinc-500 mt-2">
                 Don&apos;t have an account?{' '}
                 <Link href="/auth/signup" className="text-gray-200 hover:text-gray-100 hover:underline">
                   Sign up
