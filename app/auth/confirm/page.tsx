@@ -13,111 +13,68 @@ export default function ConfirmPage() {
   const [message, setMessage] = useState('Verifying your email...');
 
   useEffect(() => {
-    // Wait for searchParams to be ready
     if (!searchParams) return;
 
     const token_hash = searchParams.get('token_hash');
     const type = searchParams.get('type');
 
-    // If no token, just redirect (maybe already confirmed)
     if (!token_hash || !type) {
+      // No token? Just go to login (maybe already confirmed)
       setStatus('success');
-      setMessage('Email confirmed! Please sign in to continue.');
-      const timer = setTimeout(() => router.push('/auth/login'), 2000);
-      return () => clearTimeout(timer);
+      setMessage('Email confirmed! Please sign in.');
+      setTimeout(() => router.push('/auth/login'), 2000);
+      return;
     }
 
-    // Process the confirmation
+    // ✅ THIS CONFIRMS THE EMAIL IN SUPABASE
     const confirmEmail = async () => {
-      try {
-        const { error } = await supabase.auth.verifyOtp({
-          token_hash,
-          type: type as any, // 'signup' is expected
-        });
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash,
+        type: type as any,
+      });
 
-        if (error) {
-          console.error('Confirmation failed:', error);
-          setStatus('error');
-          setMessage('Invalid or expired confirmation link.');
-          setTimeout(() => router.push('/auth/login'), 3000);
-          return;
-        }
-
-        setStatus('success');
-        setMessage('Email verified! Redirecting to sign in...');
-        setTimeout(() => router.push('/auth/login'), 2000);
-      } catch (err) {
-        console.error('Unexpected error:', err);
+      if (error) {
+        console.error('Confirmation failed:', error);
         setStatus('error');
-        setMessage('An unexpected error occurred.');
+        setMessage('Invalid or expired confirmation link.');
         setTimeout(() => router.push('/auth/login'), 3000);
+        return;
       }
+
+      setStatus('success');
+      setMessage('Email verified! Redirecting to sign in...');
+      setTimeout(() => router.push('/auth/login'), 2000);
     };
 
     confirmEmail();
   }, [router, searchParams]);
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
+    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.5 }}
-        className="relative w-full max-w-md bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl"
-        role="alertdialog"
-        aria-labelledby="confirm-title"
+        className="w-full max-w-md bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 text-center"
       >
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.2, type: 'spring' }}
-          className="flex justify-center mb-6"
-        >
-          {status === 'loading' && <Loader2 className="h-12 w-12 text-white animate-spin" />}
+        <motion.div className="flex justify-center mb-6">
+          {status === 'loading' && <Loader2 className="h-12 w-12 animate-spin text-white" />}
           {status === 'success' && (
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-full bg-emerald-500 flex items-center justify-center">
               <CheckCircle2 className="h-12 w-12 text-white" />
             </div>
           )}
           {status === 'error' && (
-            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-full bg-red-500 flex items-center justify-center">
               <XCircle className="h-12 w-12 text-white" />
             </div>
           )}
         </motion.div>
-        <motion.h1
-          id="confirm-title"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="text-2xl font-bold text-center mb-3"
-        >
-          {status === 'loading' && 'Verifying Your Email'}
+        <h1 className="text-2xl font-bold mb-3">
+          {status === 'loading' && 'Verifying...'}
           {status === 'success' && 'Email Verified!'}
           {status === 'error' && 'Verification Failed'}
-        </motion.h1>
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="text-zinc-400 text-center"
-        >
-          {message}
-        </motion.p>
-        {status === 'error' && (
-          <motion.button
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="w-full mt-6 px-6 py-3.5 bg-white text-black font-semibold rounded-xl transition-all duration-300 hover:bg-white/90"
-            onClick={() => router.push('/auth/login')}
-          >
-            Go to Sign In
-          </motion.button>
-        )}
+        </h1>
+        <p className="text-zinc-400">{message}</p>
       </motion.div>
     </div>
   );
