@@ -107,12 +107,6 @@ export default function PremiumSignupPage() {
       const { data, error: signupError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
-        options: {
-          data: {
-            full_name: `${formData.firstName} ${formData.lastName}`,
-            phone: formData.phone,
-          },
-        },
       });
 
       if (signupError) {
@@ -121,8 +115,26 @@ export default function PremiumSignupPage() {
         return;
       }
 
-      // Account created successfully - redirect to login
-      toast.success('Account created successfully! Please sign in.');
+      // Create profile manually
+      if (data.user) {
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.user.id,
+            full_name: `${formData.firstName} ${formData.lastName}`,
+            phone: formData.phone,
+            is_admin: false,
+          });
+
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+          // Don't fail signup if profile creation fails
+          toast.success('Account created! Please sign in.');
+        } else {
+          toast.success('Account created successfully! Please sign in.');
+        }
+      }
+
       router.push('/auth/login');
       
     } catch (err: any) {
