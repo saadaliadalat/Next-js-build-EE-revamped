@@ -1,1 +1,1 @@
-Equity-Edge-Remastered
+New Equity Edge Ai Trading Website
