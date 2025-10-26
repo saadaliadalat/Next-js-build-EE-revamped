@@ -13,6 +13,7 @@ import {
   User,
   ArrowRight,
   Phone,
+  CheckCircle2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'react-hot-toast';
@@ -45,13 +46,14 @@ const DEFAULT_FORM_DATA: FormData = {
   confirmPassword: '',
 };
 
-export default function PremiumSignupPage() {
+export default function SignupPage() {
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_DATA);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [focusedField, setFocusedField] = useState<keyof FormData | ''>('');
   const [errors, setErrors] = useState<Errors>({});
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
   const firstNameRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -70,25 +72,25 @@ export default function PremiumSignupPage() {
     const newErrors: Errors = {};
     const { firstName, lastName, email, phone, password, confirmPassword } = formData;
 
-    if (!firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!lastName.trim()) newErrors.lastName = 'Last name is required';
+    if (!firstName.trim()) newErrors.firstName = 'First name required';
+    if (!lastName.trim()) newErrors.lastName = 'Last name required';
     if (!email.trim()) {
-      newErrors.email = 'Email is required';
+      newErrors.email = 'Email required';
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       newErrors.email = 'Invalid email';
     }
     if (!phone.trim()) {
-      newErrors.phone = 'Phone is required';
+      newErrors.phone = 'Phone required';
     } else if (!/^\+?[\d\s\-()]{10,}$/.test(phone)) {
-      newErrors.phone = 'Invalid phone format';
+      newErrors.phone = 'Invalid phone';
     }
     if (!password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = 'Password required';
     } else if (password.length < 8) {
-      newErrors.password = 'At least 8 characters';
+      newErrors.password = 'Min 8 characters';
     }
     if (!confirmPassword) {
-      newErrors.confirmPassword = 'Confirm your password';
+      newErrors.confirmPassword = 'Confirm password';
     } else if (confirmPassword !== password) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
@@ -103,43 +105,36 @@ export default function PremiumSignupPage() {
     setLoading(true);
 
     try {
-      // Sign up the user (no email confirmation required)
+      // Sign up user (no email confirmation)
       const { data, error: signupError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
+        options: {
+          data: {
+            full_name: `${formData.firstName} ${formData.lastName}`,
+            phone: formData.phone,
+          },
+        },
       });
 
       if (signupError) {
         console.error('Signup error:', signupError);
-        toast.error(signupError.message || 'Failed to create account');
+        toast.error(signupError.message || 'Signup failed');
         return;
       }
 
-      // Create profile manually
-      if (data.user) {
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .insert({
-            id: data.user.id,
-            full_name: `${formData.firstName} ${formData.lastName}`,
-            phone: formData.phone,
-            is_admin: false,
-          });
-
-        if (profileError) {
-          console.error('Profile creation error:', profileError);
-          // Don't fail signup if profile creation fails
-          toast.success('Account created! Please sign in.');
-        } else {
-          toast.success('Account created successfully! Please sign in.');
-        }
-      }
-
-      router.push('/auth/login');
+      console.log('Signup success:', data);
+      setSuccess(true);
+      toast.success('Account created! You can now sign in.');
+      
+      // Redirect to login after 2 seconds
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 2000);
       
     } catch (err: any) {
       console.error('Unexpected error:', err);
-      toast.error('An unexpected error occurred. Please try again.');
+      toast.error('An error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -168,6 +163,55 @@ export default function PremiumSignupPage() {
   const labelClass = 'text-sm font-medium text-zinc-300 flex items-center gap-2 mb-2';
   const errorClass = 'text-red-400 text-xs flex items-center gap-1 mt-2';
 
+  if (success) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
+        <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="relative w-full max-w-md bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl"
+        >
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ duration: 0.5, delay: 0.2, type: 'spring' }}
+            className="flex justify-center mb-6"
+          >
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
+              <CheckCircle2 className="h-12 w-12 text-white" />
+            </div>
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="text-2xl font-bold text-center mb-3"
+          >
+            Account Created!
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+            className="text-zinc-400 text-center mb-6"
+          >
+            Welcome, {formData.firstName}! You can now sign in to your account.
+          </motion.p>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="text-zinc-500 text-center text-sm"
+          >
+            Redirecting to login...
+          </motion.p>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden">
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.05),transparent_70%)]" />
@@ -176,18 +220,16 @@ export default function PremiumSignupPage() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
         className="relative w-full max-w-md z-10"
-        role="form"
-        aria-labelledby="signup-title"
       >
         <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl">
           <div className="flex items-center justify-center space-x-2 mb-8">
             <TrendingUp className="h-8 w-8 text-white" />
-            <span id="signup-title" className="text-2xl font-bold">
+            <span className="text-2xl font-bold">
               EquityEdge<span className="text-white/60">ai</span>
             </span>
           </div>
 
-          <h2 className="text-xl font-bold text-center mb-6">Create Your Account</h2>
+          <h2 className="text-xl font-bold text-center mb-6">Create Account</h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid grid-cols-2 gap-4">
@@ -205,7 +247,6 @@ export default function PremiumSignupPage() {
                   onBlur={() => setFocusedField('')}
                   ref={firstNameRef}
                   className={inputClass('firstName')}
-                  aria-required="true"
                 />
                 {errors.firstName && (
                   <p className={errorClass}>
@@ -226,7 +267,6 @@ export default function PremiumSignupPage() {
                   onFocus={() => setFocusedField('lastName')}
                   onBlur={() => setFocusedField('')}
                   className={inputClass('lastName')}
-                  aria-required="true"
                 />
                 {errors.lastName && (
                   <p className={errorClass}>
@@ -249,7 +289,6 @@ export default function PremiumSignupPage() {
                 onFocus={() => setFocusedField('email')}
                 onBlur={() => setFocusedField('')}
                 className={inputClass('email')}
-                aria-required="true"
               />
               {errors.email && (
                 <p className={errorClass}>
@@ -260,18 +299,17 @@ export default function PremiumSignupPage() {
 
             <div>
               <label htmlFor="phone" className={labelClass}>
-                <Phone className="h-4 w-4" /> Phone Number
+                <Phone className="h-4 w-4" /> Phone
               </label>
               <input
                 id="phone"
                 type="tel"
-                placeholder="+1234567890"
+                placeholder="+91 98765 43210"
                 value={formData.phone}
                 onChange={(e) => updateField('phone', e.target.value)}
                 onFocus={() => setFocusedField('phone')}
                 onBlur={() => setFocusedField('')}
                 className={inputClass('phone')}
-                aria-required="true"
               />
               {errors.phone && (
                 <p className={errorClass}>
@@ -288,19 +326,17 @@ export default function PremiumSignupPage() {
                 <input
                   id="password"
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter a strong password"
+                  placeholder="Min 8 characters"
                   value={formData.password}
                   onChange={(e) => updateField('password', e.target.value)}
                   onFocus={() => setFocusedField('password')}
                   onBlur={() => setFocusedField('')}
                   className={`${inputClass('password')} pr-12`}
-                  aria-required="true"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -340,19 +376,17 @@ export default function PremiumSignupPage() {
                 <input
                   id="confirmPassword"
                   type={showConfirmPassword ? 'text' : 'password'}
-                  placeholder="Re-enter your password"
+                  placeholder="Re-enter password"
                   value={formData.confirmPassword}
                   onChange={(e) => updateField('confirmPassword', e.target.value)}
                   onFocus={() => setFocusedField('confirmPassword')}
                   onBlur={() => setFocusedField('')}
                   className={`${inputClass('confirmPassword')} pr-12`}
-                  aria-required="true"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-                  aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
                 >
                   {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
@@ -374,7 +408,7 @@ export default function PremiumSignupPage() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Creating account...
+                  Creating...
                 </>
               ) : (
                 <>
@@ -385,25 +419,15 @@ export default function PremiumSignupPage() {
           </form>
 
           <div className="mt-6 pt-6 border-t border-white/10">
-            <p className="text-xs text-center text-zinc-400 flex items-center justify-center gap-2 mb-4">
-              <Lock className="h-3 w-3" /> Your information is securely encrypted.
-            </p>
             <p className="text-sm text-center text-zinc-400">
               Already have an account?{' '}
-              <a href="/auth/login" className="text-white hover:underline font-medium transition-colors">
+              <a href="/auth/login" className="text-white hover:underline font-medium">
                 Sign in
               </a>
             </p>
           </div>
         </div>
       </motion.div>
-
-      <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-        * {
-          font-family: 'Inter', sans-serif;
-        }
-      `}</style>
     </div>
   );
 }
