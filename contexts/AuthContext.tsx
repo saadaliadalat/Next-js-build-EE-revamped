@@ -74,7 +74,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchProfile = async (userId: string) => {
     try {
-      // Fetch from 'users' table (not 'profiles')
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -82,7 +81,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (error) {
-        console.error('Profile fetch error:', error);
+        // Only log if it's not a "not found" error
+        if (error.code !== 'PGRST116') {
+          console.error('Profile fetch error:', error);
+        }
         setProfile(null);
       } else {
         setProfile(data);
@@ -108,6 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) throw error;
+    
+    // Note: User profile and wallet are automatically created by database trigger
   };
 
   const signIn = async (email: string, password: string) => {
