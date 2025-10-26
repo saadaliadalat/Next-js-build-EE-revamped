@@ -72,28 +72,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string, retries = 3) => {
     try {
       const { data, error } = await supabase
         .from('users')
         .select('*')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error) {
-        // Only log if it's not a "not found" error
-        if (error.code !== 'PGRST116') {
-          console.error('Profile fetch error:', error);
-        }
+      if (error && error.message) {
+        // Only log if there's an actual error message
+        console.error('Profile fetch error:', error);
         setProfile(null);
-      } else {
+      } else if (data) {
         setProfile(data);
+      } else if (retries > 0) {
+        // Profile not found yet, retry after a short delay
+        setTimeout(() => fetchProfile(userId, retries - 1), 500);
+        return; // Don't set loading to false yet
+      } else {
+        // No profile found after retries
+        setProfile(null);
       }
     } catch (error) {
       console.error('Unexpected error fetching profile:', error);
       setProfile(null);
     } finally {
-      setLoading(false);
+      if (retries === 0 || retries === 3) {
+        setLoading(false);
+      }
     }
   };
 
