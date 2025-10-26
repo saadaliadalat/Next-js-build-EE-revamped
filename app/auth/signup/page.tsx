@@ -15,7 +15,7 @@ import {
   Phone,
   CheckCircle2,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 
@@ -56,6 +56,7 @@ export default function SignupPage() {
   const [success, setSuccess] = useState(false);
   const firstNameRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+  const { signUp } = useAuth();
 
   useEffect(() => {
     firstNameRef.current?.focus();
@@ -105,25 +106,11 @@ export default function SignupPage() {
     setLoading(true);
 
     try {
-      // Sign up user (no email confirmation)
-      const { data, error: signupError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: {
-            full_name: `${formData.firstName} ${formData.lastName}`,
-            phone: formData.phone,
-          },
-        },
-      });
+      const fullName = `${formData.firstName} ${formData.lastName}`;
+      
+      // Use AuthContext signUp
+      await signUp(formData.email, formData.password, fullName, formData.phone);
 
-      if (signupError) {
-        console.error('Signup error:', signupError);
-        toast.error(signupError.message || 'Signup failed');
-        return;
-      }
-
-      console.log('Signup success:', data);
       setSuccess(true);
       toast.success('Account created! You can now sign in.');
       
@@ -133,12 +120,12 @@ export default function SignupPage() {
       }, 2000);
       
     } catch (err: any) {
-      console.error('Unexpected error:', err);
-      toast.error('An error occurred. Please try again.');
+      console.error('Signup error:', err);
+      toast.error(err.message || 'Signup failed. Please try again.');
     } finally {
       setLoading(false);
     }
-  }, [formData, validateForm, router]);
+  }, [formData, validateForm, signUp, router]);
 
   const getPasswordStrength = () => {
     const len = formData.password.length;
@@ -304,7 +291,7 @@ export default function SignupPage() {
               <input
                 id="phone"
                 type="tel"
-                placeholder="+91 98765 43210"
+                placeholder="+92 300 1234567"
                 value={formData.phone}
                 onChange={(e) => updateField('phone', e.target.value)}
                 onFocus={() => setFocusedField('phone')}
