@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Loader2, TrendingUp, Mail, Lock } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -13,10 +13,22 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
+  const { signIn, profile } = useAuth();
 
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
+
+  // Wait for profile to load after login
+  useEffect(() => {
+    if (profile && !loading) {
+      if (profile.is_admin) {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
+    }
+  }, [profile, loading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,40 +41,12 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        console.error('Login error:', error);
-        toast.error(error.message || 'Invalid credentials');
-        return;
-      }
-
-      console.log('Login success:', data);
-
-      // Check if user is approved
-      const { data: userData } = await supabase
-        .from('users')
-        .select('is_approved, is_admin')
-        .eq('id', data.user.id)
-        .single();
-
-      if (userData?.is_admin) {
-        toast.success('Welcome Admin!');
-        router.push('/admin');
-      } else if (!userData?.is_approved) {
-        toast.error('Account pending admin approval');
-        router.push('/pending-approval');
-      } else {
-        toast.success('Welcome back!');
-        router.push('/dashboard');
-      }
+      await signIn(email, password);
+      toast.success('Welcome back!');
+      // Routing happens in useEffect above once profile loads
     } catch (err: any) {
-      console.error('Unexpected error:', err);
-      toast.error('An error occurred');
-    } finally {
+      console.error('Login error:', err);
+      toast.error(err.message || 'Invalid credentials');
       setLoading(false);
     }
   };
