@@ -80,22 +80,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .eq('id', userId)
         .maybeSingle();
 
-      if (error && error.message) {
-        // Only log if there's an actual error message
-        console.error('Profile fetch error:', error);
-        setProfile(null);
-      } else if (data) {
+      // Debug: Let's see what's actually in this error
+      if (error) {
+        console.log('🔍 DEBUG - Error object:', JSON.stringify(error, null, 2));
+        console.log('🔍 DEBUG - Error keys:', Object.keys(error));
+        console.log('🔍 DEBUG - Error code:', error.code);
+        console.log('🔍 DEBUG - Error message:', error.message);
+        console.log('🔍 DEBUG - Error details:', error.details);
+      }
+
+      if (data) {
+        console.log('✅ Profile fetched successfully:', data);
         setProfile(data);
       } else if (retries > 0) {
-        // Profile not found yet, retry after a short delay
+        console.log(`⏳ Profile not found, retrying... (${retries} attempts left)`);
         setTimeout(() => fetchProfile(userId, retries - 1), 500);
-        return; // Don't set loading to false yet
+        return;
       } else {
-        // No profile found after retries
+        console.log('❌ Profile not found after all retries');
         setProfile(null);
       }
     } catch (error) {
-      console.error('Unexpected error fetching profile:', error);
+      console.error('💥 Unexpected error fetching profile:', error);
       setProfile(null);
     } finally {
       if (retries === 0 || retries === 3) {
