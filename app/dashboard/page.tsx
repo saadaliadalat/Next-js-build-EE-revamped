@@ -1,511 +1,651 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'react-hot-toast';
 import {
-  TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
-  Clock, CheckCircle, XCircle, Copy, AlertCircle,
-  Upload, FileText, DollarSign, CreditCard, RefreshCw, User
+  TrendingUp,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownLeft,
+  Copy,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  FileText,
+  Building2,
+  Upload,
+  Eye,
+  EyeOff,
+  Info,
+  XCircle,
 } from 'lucide-react';
-
-// Type definitions
-interface User {
-  id: string;
-  full_name: string;
-  is_approved: boolean;
-}
+import { Navbar } from '@/components/Navbar';
 
 interface BankAccount {
   id: string;
   bank_name: string;
+  account_holder: string;
   account_number: string;
   routing_number: string;
+  iban: string;
+  swift_code: string;
   instructions: string;
 }
 
-interface Deposit {
-  id: string;
-  amount: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
-  created_at: string;
-  bank_account_id: string;
-  bank_accounts: { bank_name: string; account_number: string };
-}
-
-interface Withdrawal {
-  id: string;
-  amount: string;
-  status: 'pending' | 'approved' | 'rejected' | 'completed';
-  created_at: string;
-}
-
-export default function EnhancedDashboard() {
+export default function ProductionDashboard() {
+  const { user, profile, loading: authLoading } = useAuth();
   const router = useRouter();
-  const { toast } = useToast();
-  const [user, setUser] = useState<User | null>(null);
-  const [balance, setBalance] = useState<number>(0);
-  const [pendingBalance, setPendingBalance] = useState<number>(0);
-  const [activeTab, setActiveTab] = useState<'overview' | 'deposit' | 'kyc' | 'history'>('overview');
+  
+  // State
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [showBalance, setShowBalance] = useState(true);
+  const [copiedField, setCopiedField] = useState('');
+  
+  // Data
+  const [balance, setBalance] = useState(0);
+  const [pendingBalance, setPendingBalance] = useState(0);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [deposits, setDeposits] = useState<Deposit[]>([]);
-  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [submitting, setSubmitting] = useState<boolean>(false);
-  const [depositAmount, setDepositAmount] = useState<string>('');
-  const [selectedBank, setSelectedBank] = useState<string>('');
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [deposits, setDeposits] = useState<any[]>([]);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [kycStatus, setKycStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
+  
+  // Forms
+  const [depositForm, setDepositForm] = useState({
+    amount: '',
+    proofFile: null as File | null,
+  });
+  const [depositLoading, setDepositLoading] = useState(false);
 
   useEffect(() => {
-    checkUser();
-    fetchBankAccounts();
-  }, []);
-
-  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push('/auth/login');
+      return;
+    }
     if (user) {
-      fetchBalance();
-      fetchDeposits();
-      fetchWithdrawals();
+      fetchDashboardData();
     }
-  }, [user]);
+  }, [user, authLoading]);
 
-  async function checkUser() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      router.push('/login');
-      return;
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    try {
+      // Fetch balance
+      const { data: balanceData } = await supabase
+        .from('balances')
+        .select('amount')
+        .eq('user_id', user?.id)
+        .eq('currency', 'USD')
+        .single();
+
+      setBalance(balanceData?.amount || 0);
+
+      // Fetch pending deposits for pending balance
+      const { data: pendingDeposits } = await supabase
+        .from('deposits')
+        .select('amount')
+        .eq('user_id', user?.id)
+        .eq('status', 'pending');
+
+      const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
+      setPendingBalance(pending);
+
+      // Fetch bank accounts
+      const { data: bankData } = await supabase
+        .from('bank_accounts')
+        .select('*')
+        .eq('is_active', true);
+
+      setBankAccounts(bankData || []);
+
+      // Fetch deposits
+      const { data: depositsData } = await supabase
+        .from('deposits')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      setDeposits(depositsData || []);
+
+      // Fetch withdrawals
+      const { data: withdrawalsData } = await supabase
+        .from('withdrawals')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      setWithdrawals(withdrawalsData || []);
+
+      // Check KYC status
+      const { data: kycData } = await supabase
+        .from('kyc_submissions')
+        .select('status')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (kycData) {
+        setKycStatus(kycData.status);
+      } else {
+        setKycStatus('not_submitted');
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    const { data: userData, error } = await supabase
-      .from('users')
-      .select('id, full_name, is_approved')
-      .eq('id', session.user.id)
-      .single();
+  const copyToClipboard = (text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    toast.success(`${field} copied!`);
+    setTimeout(() => setCopiedField(''), 2000);
+  };
 
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
+  const handleDeposit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-    setUser(userData as User);
-    setLoading(false);
-  }
-
-  async function fetchBankAccounts() {
-    const { data, error } = await supabase
-      .from('bank_accounts')
-      .select('id, bank_name, account_number, routing_number, instructions')
-      .eq('is_active', true)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setBankAccounts(data as BankAccount[] || []);
-    if (data && data.length > 0) {
-      setSelectedBank(data[0].id);
-    }
-  }
-
-  async function fetchBalance() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('wallets')
-      .select('balance')
-      .eq('user_id', user.id)
-      .single();
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setBalance(data?.balance || 0);
-
-    const { data: pendingDeposits, error: pendingError } = await supabase
-      .from('deposits')
-      .select('amount')
-      .eq('user_id', user.id)
-      .eq('status', 'pending');
-
-    if (pendingError) {
-      toast({ title: "Error", description: pendingError.message, variant: "destructive" });
-      return;
-    }
-
-    const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
-    setPendingBalance(pending);
-  }
-
-  async function fetchDeposits() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('deposits')
-      .select(`
-        id, amount, status, created_at, bank_account_id,
-        bank_accounts(bank_name, account_number)
-      `)
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setDeposits((data as unknown as Deposit[]) || []);
-  }
-
-  async function fetchWithdrawals() {
-    if (!user) return;
-    const { data, error } = await supabase
-      .from('withdrawals')
-      .select('id, amount, status, created_at')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
-
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-      return;
-    }
-
-    setWithdrawals(data as Withdrawal[] || []);
-  }
-
-  async function handleDepositSubmit() {
-    if (!user) return;
-    if (!user.is_approved) {
-      toast({
-        title: "KYC Required",
-        description: "Complete KYC verification to make deposits",
-        variant: "destructive",
-      });
+    // Check KYC
+    if (!profile?.is_approved) {
+      toast.error('Please complete KYC verification to deposit funds');
       router.push('/kyc');
       return;
     }
 
-    if (!proofFile) {
-      toast({
-        title: "Upload Required",
-        description: "Please upload payment proof",
-        variant: "destructive",
-      });
+    if (!depositForm.proofFile) {
+      toast.error('Please upload payment proof');
       return;
     }
 
-    if (!depositAmount || parseFloat(depositAmount) < 10) {
-      toast({
-        title: "Invalid Amount",
-        description: "Minimum deposit is $10",
-        variant: "destructive",
-      });
+    const amount = parseFloat(depositForm.amount);
+    if (isNaN(amount) || amount < 10) {
+      toast.error('Minimum deposit is $10');
       return;
     }
 
-    setSubmitting(true);
+    setDepositLoading(true);
 
     try {
-      const fileExt = proofFile.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      // Upload proof
+      const fileExt = depositForm.proofFile.name.split('.').pop();
+      const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
 
       const { error: uploadError } = await supabase.storage
         .from('deposit-proofs')
-        .upload(fileName, proofFile);
+        .upload(fileName, depositForm.proofFile);
 
       if (uploadError) throw uploadError;
 
+      // Create deposit
       const { error: depositError } = await supabase
         .from('deposits')
         .insert({
-          user_id: user.id,
-          bank_account_id: selectedBank,
-          amount: parseFloat(depositAmount),
+          user_id: user?.id,
+          amount,
+          currency: 'USD',
           proof_filename: fileName,
           status: 'pending',
         });
 
       if (depositError) throw depositError;
 
-      toast({
-        title: "Success",
-        description: "Deposit submitted. Awaiting admin approval.",
-      });
-
-      setDepositAmount('');
-      setProofFile(null);
-      fetchDeposits();
-      fetchBalance();
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
-      toast({
-        title: "Error",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      toast.success('Deposit request submitted! Awaiting admin approval.');
+      setDepositForm({ amount: '', proofFile: null });
+      
+      // Reset file input
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+      
+      fetchDashboardData();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to submit deposit');
     } finally {
-      setSubmitting(false);
+      setDepositLoading(false);
     }
-  }
+  };
 
-  function copyToClipboard(text: string, label: string) {
-    navigator.clipboard.writeText(text);
-    toast({
-      title: "Copied!",
-      description: `${label} copied to clipboard`,
-    });
-  }
-
-  function getStatusBadge(status: 'pending' | 'approved' | 'rejected' | 'completed') {
-    const styles: { [key in 'pending' | 'approved' | 'rejected' | 'completed']: string } = {
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      approved: 'bg-green-100 text-green-800 border-green-200',
-      rejected: 'bg-red-100 text-red-800 border-red-200',
-      completed: 'bg-blue-100 text-blue-800 border-blue-200',
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/50',
+      approved: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50',
+      rejected: 'bg-red-900/30 text-red-400 border-red-800/50',
+      completed: 'bg-blue-900/30 text-blue-400 border-blue-800/50',
     };
 
-    const icons: { [key in 'pending' | 'approved' | 'rejected' | 'completed']: JSX.Element } = {
-      pending: <Clock className="w-3 h-3" />,
-      approved: <CheckCircle className="w-3 h-3" />,
-      rejected: <XCircle className="w-3 h-3" />,
-      completed: <CheckCircle className="w-3 h-3" />,
+    const icons: Record<string, any> = {
+      pending: Clock,
+      approved: CheckCircle2,
+      rejected: XCircle,
+      completed: CheckCircle2,
     };
+
+    const Icon = icons[status] || AlertCircle;
 
     return (
-      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${styles[status]}`}>
-        {icons[status]} <span className="ml-1">{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold border ${styles[status] || 'bg-zinc-800 text-zinc-400'}`}>
+        <Icon className="h-3 w-3" />
+        {status.toUpperCase()}
       </span>
     );
-  }
+  };
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        <RefreshCw className="animate-spin w-8 h-8 text-blue-500" />
+      <div className="min-h-screen bg-black text-white">
+        <Navbar />
+        <div className="flex items-center justify-center h-screen">
+          <TrendingUp className="h-12 w-12 animate-spin text-emerald-400" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Welcome, {user?.full_name || 'User'}</h1>
-        {user && !user.is_approved && (
-          <div className="mt-2 p-3 bg-yellow-100 text-yellow-800 rounded-md flex items-center">
-            <AlertCircle className="w-5 h-5 mr-2" />
-            Complete KYC verification to enable deposits and withdrawals
+    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+      <Navbar />
+      
+      <div className="max-w-7xl mx-auto p-4 md:p-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold mb-2">Welcome back, {profile?.full_name}</h1>
+          <p className="text-zinc-400">Manage your trading account</p>
+        </div>
+
+        {/* KYC Status Banner */}
+        {kycStatus === 'not_submitted' && (
+          <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
+            <AlertCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-lg text-red-400">⚠️ KYC Required</p>
+              <p className="text-sm text-zinc-300 mt-1">
+                Complete KYC verification to deposit funds and start trading.
+              </p>
+              <button
+                onClick={() => router.push('/kyc')}
+                className="mt-3 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition"
+              >
+                Complete KYC Now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {kycStatus === 'pending' && (
+          <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
+            <Clock className="h-6 w-6 text-yellow-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-lg text-yellow-400">⏳ KYC Under Review</p>
+              <p className="text-sm text-zinc-300 mt-1">
+                Your KYC submission is being reviewed. This usually takes 24-48 hours.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {kycStatus === 'approved' && profile?.is_approved && (
+          <div className="bg-emerald-900/20 border border-emerald-800/50 rounded-xl p-4 mb-8 flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+            <p className="text-sm font-semibold text-emerald-400">✓ Account Verified</p>
+          </div>
+        )}
+
+        {kycStatus === 'rejected' && (
+          <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
+            <XCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-bold text-lg text-red-400">❌ KYC Rejected</p>
+              <p className="text-sm text-zinc-300 mt-1">
+                Your KYC was rejected. Please resubmit with correct documents.
+              </p>
+              <button
+                onClick={() => router.push('/kyc')}
+                className="mt-3 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition"
+              >
+                Resubmit KYC
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Balance Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-emerald-900/20 to-emerald-900/10 border border-emerald-800/30 rounded-xl p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-emerald-400" />
+                <p className="text-zinc-400 text-sm font-semibold">Available Balance</p>
+              </div>
+              <button
+                onClick={() => setShowBalance(!showBalance)}
+                className="p-2 hover:bg-emerald-900/20 rounded-lg transition"
+              >
+                {showBalance ? (
+                  <Eye className="h-4 w-4 text-emerald-400" />
+                ) : (
+                  <EyeOff className="h-4 w-4 text-emerald-400" />
+                )}
+              </button>
+            </div>
+            <h2 className="text-3xl font-bold">
+              {showBalance ? `$${balance.toFixed(2)}` : '••••••'}
+            </h2>
+          </div>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-yellow-400" />
+              <p className="text-zinc-400 text-sm font-semibold">Pending Balance</p>
+            </div>
+            <h2 className="text-3xl font-bold text-yellow-400">
+              ${pendingBalance.toFixed(2)}
+            </h2>
+          </div>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="h-5 w-5 text-blue-400" />
+              <p className="text-zinc-400 text-sm font-semibold">Total Deposits</p>
+            </div>
+            <h2 className="text-3xl font-bold text-blue-400">
+              ${deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + parseFloat(d.amount), 0).toFixed(2)}
+            </h2>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-4 mb-8 overflow-x-auto">
+          {['overview', 'deposit', 'withdraw', 'history'].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-6 py-3 rounded-lg font-semibold transition capitalize whitespace-nowrap ${
+                activeTab === tab
+                  ? 'bg-emerald-500 text-black'
+                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {/* Overview Tab */}
+        {activeTab === 'overview' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+              <h3 className="font-bold text-lg mb-6">Recent Deposits</h3>
+              <div className="space-y-3">
+                {deposits.slice(0, 5).length === 0 ? (
+                  <p className="text-zinc-500 text-center py-8 text-sm">No deposits yet</p>
+                ) : (
+                  deposits.slice(0, 5).map((deposit) => (
+                    <div key={deposit.id} className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <ArrowUpRight className="h-5 w-5 text-emerald-400" />
+                        <div>
+                          <p className="font-semibold">${parseFloat(deposit.amount).toFixed(2)}</p>
+                          <p className="text-xs text-zinc-500">
+                            {new Date(deposit.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      {getStatusBadge(deposit.status)}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+              <h3 className="font-bold text-lg mb-6">Recent Withdrawals</h3>
+              <div className="space-y-3">
+                {withdrawals.slice(0, 5).length === 0 ? (
+                  <p className="text-zinc-500 text-center py-8 text-sm">No withdrawals yet</p>
+                ) : (
+                  withdrawals.slice(0, 5).map((withdrawal) => (
+                    <div key={withdrawal.id} className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <ArrowDownLeft className="h-5 w-5 text-red-400" />
+                        <div>
+                          <p className="font-semibold">${parseFloat(withdrawal.amount).toFixed(2)}</p>
+                          <p className="text-xs text-zinc-500">
+                            {new Date(withdrawal.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      {getStatusBadge(withdrawal.status)}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Deposit Tab */}
+        {activeTab === 'deposit' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bank Details */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Building2 className="h-6 w-6 text-emerald-400" />
+                <h2 className="text-xl font-bold">Bank Details</h2>
+              </div>
+
+              {bankAccounts.length === 0 ? (
+                <p className="text-zinc-400">No active bank accounts</p>
+              ) : (
+                bankAccounts.map((bank) => (
+                  <div key={bank.id} className="space-y-4">
+                    <div className="bg-emerald-900/10 border border-emerald-800/30 rounded-lg p-4">
+                      <p className="text-sm text-zinc-400 mb-1">Bank Name</p>
+                      <p className="text-lg font-bold text-emerald-400">{bank.bank_name}</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-3">
+                        <div>
+                          <p className="text-xs text-zinc-400">Account Holder</p>
+                          <p className="font-semibold">{bank.account_holder}</p>
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard(bank.account_holder, 'Account Holder')}
+                          className="p-2 hover:bg-zinc-700 rounded transition"
+                        >
+                          {copiedField === 'Account Holder' ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-4 w-4 text-zinc-400" />
+                          )}
+                        </button>
+                      </div>
+
+                      <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-3">
+                        <div>
+                          <p className="text-xs text-zinc-400">Account Number</p>
+                          <p className="font-mono font-semibold">{bank.account_number}</p>
+                        </div>
+                        <button
+                          onClick={() => copyToClipboard(bank.account_number, 'Account Number')}
+                          className="p-2 hover:bg-zinc-700 rounded transition"
+                        >
+                          {copiedField === 'Account Number' ? (
+                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                          ) : (
+                            <Copy className="h-4 w-4 text-zinc-400" />
+                          )}
+                        </button>
+                      </div>
+
+                      {bank.routing_number && (
+                        <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-3">
+                          <div>
+                            <p className="text-xs text-zinc-400">Routing Number</p>
+                            <p className="font-mono font-semibold">{bank.routing_number}</p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(bank.routing_number, 'Routing Number')}
+                            className="p-2 hover:bg-zinc-700 rounded transition"
+                          >
+                            {copiedField === 'Routing Number' ? (
+                              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-4 w-4 text-zinc-400" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {bank.instructions && (
+                      <div className="bg-blue-900/10 border border-blue-800/30 rounded-lg p-4">
+                        <div className="flex items-start gap-2">
+                          <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-semibold text-blue-400 mb-1">Instructions</p>
+                            <p className="text-sm text-zinc-300">{bank.instructions}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Deposit Form */}
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+              <div className="flex items-center gap-3 mb-6">
+                <Upload className="h-6 w-6 text-emerald-400" />
+                <h2 className="text-xl font-bold">Submit Deposit</h2>
+              </div>
+
+              <form onSubmit={handleDeposit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-zinc-300 mb-2">
+                    Amount (USD)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="10"
+                    placeholder="Minimum $10"
+                    value={depositForm.amount}
+                    onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                    required
+                    disabled={!profile?.is_approved}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Payment Proof *
+                  </label>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    onChange={(e) => setDepositForm({ 
+                      ...depositForm, 
+                      proofFile: e.target.files?.[0] || null 
+                    })}
+                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 file:transition-all focus:outline-none focus:border-emerald-500"
+                    required
+                    disabled={!profile?.is_approved}
+                  />
+                  <p className="text-xs text-zinc-400 mt-2 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    JPG, PNG, PDF - Max 5MB
+                  </p>
+                </div>
+
+                {depositForm.proofFile && (
+                  <div className="text-xs text-emerald-400 p-3 bg-emerald-900/10 border border-emerald-800/30 rounded-lg">
+                    ✓ Selected: {depositForm.proofFile.name}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={depositLoading || !profile?.is_approved}
+                  className="w-full px-4 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                >
+                  {depositLoading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-black border-t-transparent" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowUpRight className="h-5 w-5" />
+                      Submit Deposit
+                    </>
+                  )}
+                </button>
+
+                {!profile?.is_approved && (
+                  <p className="text-xs text-red-400 text-center">
+                    Complete KYC verification to enable deposits
+                  </p>
+                )}
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* History Tab */}
+        {activeTab === 'history' && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <h3 className="font-bold text-lg mb-6">Transaction History</h3>
+            <div className="space-y-4">
+              {[...deposits, ...withdrawals].sort((a, b) => 
+                new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+              ).length === 0 ? (
+                <p className="text-zinc-500 text-center py-12">No transactions yet</p>
+              ) : (
+                [...deposits.map(d => ({...d, type: 'deposit'})), ...withdrawals.map(w => ({...w, type: 'withdrawal'}))]
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .map((transaction) => (
+                    <div key={transaction.id} className="p-4 bg-zinc-800/30 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-start gap-3">
+                          {transaction.type === 'deposit' ? (
+                            <ArrowUpRight className="h-5 w-5 text-emerald-400 mt-1" />
+                          ) : (
+                            <ArrowDownLeft className="h-5 w-5 text-red-400 mt-1" />
+                          )}
+                          <div>
+                            <p className="font-semibold capitalize">{transaction.type}</p>
+                            <p className="text-sm text-zinc-500">
+                              {new Date(transaction.created_at).toLocaleString()}
+                            </p>
+                            <p className={`text-lg font-bold mt-1 ${transaction.type === 'deposit' ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {transaction.type === 'deposit' ? '+' : '-'}${parseFloat(transaction.amount).toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
+                        {getStatusBadge(transaction.status)}
+                      </div>
+                      {transaction.admin_notes && (
+                        <p className="text-xs text-zinc-400 mt-3 p-2 bg-zinc-900 rounded">
+                          Admin Note: {transaction.admin_notes}
+                        </p>
+                      )}
+                    </div>
+                  ))
+              )}
+            </div>
           </div>
         )}
       </div>
-
-      {/* Tabs */}
-      <div className="flex border-b mb-6">
-        {(['overview', 'deposit', 'kyc', 'history'] as const).map((tab) => (
-          <button
-            key={tab}
-            className={`px-4 py-2 ${activeTab === tab ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500'}`}
-            onClick={() => tab === 'kyc' ? router.push('/kyc') : setActiveTab(tab)}
-          >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Overview Tab */}
-      {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="p-4 bg-white rounded-lg shadow">
-            <div className="flex items-center">
-              <Wallet className="w-6 h-6 text-blue-500 mr-2" />
-              <h3 className="text-lg font-semibold">Available Balance</h3>
-            </div>
-            <p className="text-2xl font-bold mt-2">${balance.toFixed(2)}</p>
-          </div>
-          <div className="p-4 bg-white rounded-lg shadow">
-            <div className="flex items-center">
-              <Clock className="w-6 h-6 text-yellow-500 mr-2" />
-              <h3 className="text-lg font-semibold">Pending Balance</h3>
-            </div>
-            <p className="text-2xl font-bold mt-2">${pendingBalance.toFixed(2)}</p>
-          </div>
-          <div className="p-4 bg-white rounded-lg shadow">
-            <div className="flex items-center">
-              <TrendingUp className="w-6 h-6 text-green-500 mr-2" />
-              <h3 className="text-lg font-semibold">Total Deposits</h3>
-            </div>
-            <p className="text-2xl font-bold mt-2">
-              ${deposits.reduce((sum, d) => sum + parseFloat(d.amount), 0).toFixed(2)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Deposit Tab */}
-      {activeTab === 'deposit' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-6 bg-white rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Make a Deposit</h2>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-1">Select Bank Account</label>
-              {bankAccounts.length > 0 ? (
-                <select
-                  value={selectedBank}
-                  onChange={(e) => setSelectedBank(e.target.value)}
-                  className="w-full p-2 border rounded-md"
-                >
-                  {bankAccounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.bank_name} - {account.account_number.slice(-4)}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <p className="text-red-500">No active bank accounts found</p>
-              )}
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-1">Deposit Amount ($)</label>
-              <input
-                type="number"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                className="w-full p-2 border rounded-md"
-                placeholder="Enter amount"
-                min="10"
-              />
-            </div>
-            <div className="mb-4">
-              <label className="block text-sm font-medium mb-1">Payment Proof</label>
-              <input
-                type="file"
-                onChange={(e) => e.target.files && setProofFile(e.target.files[0])}
-                className="w-full p-2 border rounded-md"
-                accept="image/*,.pdf"
-              />
-            </div>
-            <button
-              onClick={handleDepositSubmit}
-              disabled={submitting}
-              className="w-full bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600 disabled:bg-gray-400"
-            >
-              {submitting ? 'Submitting...' : 'Submit Deposit'}
-            </button>
-          </div>
-          <div className="p-6 bg-white rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Bank Details</h2>
-            {bankAccounts.length > 0 ? (
-              bankAccounts.map((account) => (
-                <div key={account.id} className="mb-4">
-                  <div className="flex justify-between items-center">
-                    <p><strong>Bank:</strong> {account.bank_name}</p>
-                    <button onClick={() => copyToClipboard(account.bank_name, 'Bank Name')}>
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <p><strong>Account:</strong> {account.account_number}</p>
-                    <button onClick={() => copyToClipboard(account.account_number, 'Account Number')}>
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <p><strong>Routing:</strong> {account.routing_number}</p>
-                    <button onClick={() => copyToClipboard(account.routing_number, 'Routing Number')}>
-                      <Copy className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <p><strong>Instructions:</strong> {account.instructions}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-gray-500">No bank accounts available</p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* KYC Tab */}
-      {activeTab === 'kyc' && (
-        <div className="p-6 bg-white rounded-lg shadow">
-          <h2 className="text-xl font-semibold mb-4">KYC Verification</h2>
-          <p className="text-gray-500 mb-4">Please complete your KYC verification to enable deposits and withdrawals.</p>
-          <button
-            onClick={() => router.push('/kyc')}
-            className="bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600"
-          >
-            Go to KYC Page
-          </button>
-        </div>
-      )}
-
-      {/* History Tab */}
-      {activeTab === 'history' && (
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Transaction History</h2>
-          <div className="mb-4">
-            <h3 className="text-lg font-medium mb-2">Recent Deposits</h3>
-            {deposits.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-gray-500">
-                      <th className="p-2">Date</th>
-                      <th className="p-2">Amount</th>
-                      <th className="p-2">Bank</th>
-                      <th className="p-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {deposits.map((deposit) => (
-                      <tr key={deposit.id}>
-                        <td className="p-2">{new Date(deposit.created_at).toLocaleDateString()}</td>
-                        <td className="p-2">${parseFloat(deposit.amount).toFixed(2)}</td>
-                        <td className="p-2">{deposit.bank_accounts?.bank_name || 'Unknown'}</td>
-                        <td className="p-2">{getStatusBadge(deposit.status)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500">No deposits found</p>
-            )}
-          </div>
-          <div>
-            <h3 className="text-lg font-medium mb-2">Recent Withdrawals</h3>
-            {withdrawals.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-gray-500">
-                      <th className="p-2">Date</th>
-                      <th className="p-2">Amount</th>
-                      <th className="p-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {withdrawals.map((withdrawal) => (
-                      <tr key={withdrawal.id}>
-                        <td className="p-2">{new Date(withdrawal.created_at).toLocaleDateString()}</td>
-                        <td className="p-2">${parseFloat(withdrawal.amount).toFixed(2)}</td>
-                        <td className="p-2">{getStatusBadge(withdrawal.status)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <p className="text-gray-500">No withdrawals found</p>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
