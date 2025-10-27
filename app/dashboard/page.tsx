@@ -1,265 +1,480 @@
-import { useState } from 'react';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase, PostgrestError } from '@/lib/supabase';
+import { useToast } from '@/hooks/use-toast';
 import {
-  TrendingUp,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Eye,
-  EyeOff,
-  AlertCircle,
-  Plus,
-  Zap,
+  TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
+  Clock, CheckCircle, XCircle, Copy, AlertCircle,
+  Upload, FileText, DollarSign, CreditCard, RefreshCw, User
 } from 'lucide-react';
 
-export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [showBalance, setShowBalance] = useState(true);
-  
-  // Mock data
-  const profile = {
-    full_name: 'Ahmed Hassan',
-    is_approved: false,
-  };
-  
-  const balance = 0;
-  const deposits = [
-    { id: 1, amount: 100, status: 'pending', created_at: new Date().toISOString() },
-  ];
-  const withdrawals = [];
+// Type definitions
+interface User {
+  id: string;
+  full_name: string;
+  is_approved: boolean;
+}
+
+interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_number: string;
+  routing_number: string;
+  instructions: string;
+}
+
+interface Deposit {
+  id: string;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  created_at: string;
+  bank_account_id: string;
+  bank_accounts: { bank_name: string; account_number: string };
+}
+
+interface Withdrawal {
+  id: string;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected' | 'completed';
+  created_at: string;
+}
+
+export default function EnhancedDashboard() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const [user, setUser] = useState<User | null>(null);
+  const [balance, setBalance] = useState<number>(0);
+  const [pendingBalance, setPendingBalance] = useState<number>(0);
+  const [activeTab, setActiveTab] = useState<'overview' | 'deposit' | 'kyc' | 'history'>('overview');
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [depositAmount, setDepositAmount] = useState<string>('');
+  const [selectedBank, setSelectedBank] = useState<string>('');
+  const [proofFile, setProofFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    checkUser();
+    fetchBankAccounts();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchBalance();
+      fetchDeposits();
+      fetchWithdrawals();
+    }
+  }, [user]);
+
+  async function checkUser() {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      router.push('/login');
+      return;
+    }
+
+    const { data: userData } = await supabase
+      .from('users')
+      .select('id, full_name, is_approved')
+      .eq('id', session.user.id)
+      .single();
+
+    setUser(userData as User);
+    setLoading(false);
+  }
+
+  async function fetchBankAccounts() {
+    const { data } = await supabase
+      .from('bank_accounts')
+      .select('id, bank_name, account_number, routing_number, instructions')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+
+    setBankAccounts(data as BankAccount[] || []);
+    if (data && data.length > 0) {
+      setSelectedBank(data[0].id);
+    }
+  }
+
+  async function fetchBalance() {
+    if (!user) return;
+    const { data } = await supabase
+      .from('wallets')
+      .select('balance')
+      .eq('user_id', user.id)
+      .single();
+
+    setBalance(data?.balance || 0);
+
+    const { data: pendingDeposits } = await supabase
+      .from('deposits')
+      .select('amount')
+      .eq('user_id', user.id)
+      .eq('status', 'pending');
+
+    const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
+    setPendingBalance(pending);
+  }
+
+  async function fetchDeposits() {
+    if (!user) return;
+    const { data } = await supabase
+      .from('deposits')
+      .select(`
+        id, amount, status, created_at, bank_account_id,
+        bank_accounts(bank_name, account_number)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    setDeposits(data as Deposit[] || []);
+  }
+
+  async function fetchWithdrawals() {
+    if (!user) return;
+    const { data } = await supabase
+      .from('withdrawals')
+      .select('id, amount, status, created_at')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    setWithdrawals(data as Withdrawal[] || []);
+  }
+
+  async function handleDepositSubmit() {
+    if (!user) return;
+    if (!user.is_approved) {
+      toast({
+        title: "KYC Required",
+        description: "Complete KYC verification to make deposits",
+        variant: "destructive",
+      });
+      router.push('/kyc');
+      return;
+    }
+
+    if (!proofFile) {
+      toast({
+        title: "Upload Required",
+        description: "Please upload payment proof",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!depositAmount || parseFloat(depositAmount) < 10) {
+      toast({
+        title: "Invalid Amount",
+        description: "Minimum deposit is $10",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const fileExt = proofFile.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('deposit-proofs')
+        .upload(fileName, proofFile);
+
+      if (uploadError) throw uploadError;
+
+      const { error: depositError } = await supabase
+        .from('deposits')
+        .insert({
+          user_id: user.id,
+          bank_account_id: selectedBank,
+          amount: parseFloat(depositAmount),
+          proof_filename: fileName,
+          status: 'pending',
+        });
+
+      if (depositError) throw depositError;
+
+      toast({
+        title: "Success",
+        description: "Deposit submitted. Awaiting admin approval.",
+      });
+
+      setDepositAmount('');
+      setProofFile(null);
+      fetchDeposits();
+      fetchBalance();
+    } catch (error: PostgrestError | any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function copyToClipboard(text: string, label: string) {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied!",
+      description: `${label} copied to clipboard`,
+    });
+  }
+
+  function getStatusBadge(status: 'pending' | 'approved' | 'rejected' | 'completed') {
+    const styles: { [key in 'pending' | 'approved' | 'rejected' | 'completed']: string } = {
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      approved: 'bg-green-100 text-green-800 border-green-200',
+      rejected: 'bg-red-100 text-red-800 border-red-200',
+      completed: 'bg-blue-100 text-blue-800 border-blue-200',
+    };
+
+    const icons: { [key in 'pending' | 'approved' | 'rejected' | 'completed']: JSX.Element } = {
+      pending: <Clock className="w-3 h-3" />,
+      approved: <CheckCircle className="w-3 h-3" />,
+      rejected: <XCircle className="w-3 h-3" />,
+      completed: <CheckCircle className="w-3 h-3" />,
+    };
+
+    return (
+      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${styles[status]}`}>
+        {icons[status]} <span className="ml-1">{status.charAt(0).toUpperCase() + status.slice(1)}</span>
+      </span>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <RefreshCw className="animate-spin w-8 h-8 text-blue-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
-      <div className="max-w-7xl mx-auto p-4 md:p-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Welcome back, {profile?.full_name}</h1>
-          <p className="text-zinc-400">Manage your trading account</p>
-        </div>
-
-        {/* KYC Banner - HIGHLIGHTED */}
-        {!profile?.is_approved && (
-          <div className="mb-8 rounded-xl p-6 border-2 border-yellow-500/50 bg-gradient-to-r from-yellow-900/30 to-orange-900/30 flex items-start gap-4 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-yellow-500/10 rounded-full blur-3xl -z-0"></div>
-            <AlertCircle className="h-7 w-7 text-yellow-400 flex-shrink-0 mt-1 relative z-10" />
-            <div className="flex-1 relative z-10">
-              <p className="font-bold text-lg text-yellow-400">⚠️ Complete KYC Verification</p>
-              <p className="text-sm text-zinc-300 mt-2">
-                Your account is not yet verified. Complete KYC verification to unlock deposits, withdrawals, and full trading access.
-              </p>
-            </div>
-            <button
-              onClick={() => window.location.href = '/kyc'}
-              className="flex-shrink-0 px-6 py-3 bg-yellow-500 text-black font-bold rounded-lg hover:bg-yellow-600 transition transform hover:scale-105 active:scale-95 flex items-center gap-2 relative z-10"
-            >
-              <Zap className="h-5 w-5" />
-              Start KYC
-            </button>
-          </div>
-        )}
-
-        {/* Balance Card */}
-        <div className="bg-gradient-to-r from-emerald-900/20 to-emerald-900/10 border border-emerald-800/30 rounded-xl p-6 mb-8">
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="text-zinc-400 mb-2">Total Balance</p>
-              <div className="flex items-center gap-3">
-                <h2 className="text-4xl font-bold">
-                  {showBalance ? `$${balance.toFixed(2)}` : '••••••'}
-                </h2>
-                <button
-                  onClick={() => setShowBalance(!showBalance)}
-                  className="p-2 hover:bg-emerald-900/20 rounded-lg transition"
-                >
-                  {showBalance ? (
-                    <Eye className="h-5 w-5 text-emerald-400" />
-                  ) : (
-                    <EyeOff className="h-5 w-5 text-emerald-400" />
-                  )}
-                </button>
-              </div>
-            </div>
-            <div className="text-right">
-              <p className="text-sm text-emerald-400">USD</p>
-              <p className="text-xs text-zinc-500 mt-1">Live</p>
-            </div>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-4 mb-8 overflow-x-auto">
-          {['overview', 'deposits', 'withdrawals'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-6 py-3 rounded-lg font-semibold transition capitalize whitespace-nowrap ${
-                activeTab === tab
-                  ? 'bg-emerald-500 text-black'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-
-        {/* Overview Tab */}
-        {activeTab === 'overview' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Quick Stats */}
-            <div className="lg:col-span-1 space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-blue-900/20 rounded-lg">
-                    <Plus className="h-5 w-5 text-blue-400" />
-                  </div>
-                  <h3 className="font-semibold">Total Deposits</h3>
-                </div>
-                <p className="text-2xl font-bold">
-                  ${deposits.reduce((sum, d) => d.status === 'approved' ? sum + d.amount : sum, 0).toFixed(2)}
-                </p>
-              </div>
-
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-red-900/20 rounded-lg">
-                    <ArrowDownLeft className="h-5 w-5 text-red-400" />
-                  </div>
-                  <h3 className="font-semibold">Total Withdrawals</h3>
-                </div>
-                <p className="text-2xl font-bold">$0.00</p>
-              </div>
-
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-3 bg-purple-900/20 rounded-lg">
-                    <TrendingUp className="h-5 w-5 text-purple-400" />
-                  </div>
-                  <h3 className="font-semibold">Account Status</h3>
-                </div>
-                <p className={`text-lg font-bold ${profile?.is_approved ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                  {profile?.is_approved ? '✓ Verified' : '⏳ Pending'}
-                </p>
-              </div>
-            </div>
-
-            {/* Recent Activity */}
-            <div className="lg:col-span-2 bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-              <h3 className="font-bold text-lg mb-6">Recent Activity</h3>
-              <div className="space-y-4">
-                {deposits.slice(0, 5).map((deposit) => (
-                  <div key={deposit.id} className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-lg">
-                    <div className="flex items-center gap-3">
-                      <Plus className="h-5 w-5 text-emerald-400" />
-                      <div>
-                        <p className="font-semibold">Deposit</p>
-                        <p className="text-xs text-zinc-500">
-                          {new Date(deposit.created_at).toLocaleDateString()}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-emerald-400">+${deposit.amount.toFixed(2)}</p>
-                      <p className={`text-xs ${
-                        deposit.status === 'approved' ? 'text-emerald-400' :
-                        deposit.status === 'pending' ? 'text-yellow-400' :
-                        'text-red-400'
-                      }`}>
-                        {deposit.status.toUpperCase()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {deposits.length === 0 && (
-                  <p className="text-zinc-500 text-center py-8">No activity yet</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Deposits Tab */}
-        {activeTab === 'deposits' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Deposit Info */}
-            <div className="lg:col-span-1">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <h3 className="font-bold text-lg mb-6">Deposit Status</h3>
-                {!profile?.is_approved ? (
-                  <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-4">
-                    <AlertCircle className="h-5 w-5 text-yellow-400 mb-2" />
-                    <p className="text-sm text-yellow-300 font-semibold">KYC Required</p>
-                    <p className="text-xs text-zinc-400 mt-2">Complete KYC verification to make deposits</p>
-                  </div>
-                ) : (
-                  <button className="w-full px-4 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600 transition">
-                    Make a Deposit
-                  </button>
-                )}
-              </div>
-            </div>
-
-            {/* Deposit History */}
-            <div className="lg:col-span-2">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <h3 className="font-bold text-lg mb-6">Deposit History</h3>
-                <div className="space-y-4">
-                  {deposits.length === 0 ? (
-                    <p className="text-zinc-500 text-center py-8">No deposits yet</p>
-                  ) : (
-                    deposits.map((deposit) => (
-                      <div key={deposit.id} className="p-4 bg-zinc-800/30 rounded-lg">
-                        <div className="flex justify-between items-start mb-2">
-                          <div>
-                            <p className="font-semibold">${deposit.amount.toFixed(2)}</p>
-                            <p className="text-xs text-zinc-500">
-                              {new Date(deposit.created_at).toLocaleString()}
-                            </p>
-                          </div>
-                          <span className={`px-3 py-1 rounded text-xs font-semibold ${
-                            deposit.status === 'approved' ? 'bg-emerald-900/30 text-emerald-400' :
-                            deposit.status === 'pending' ? 'bg-yellow-900/30 text-yellow-400' :
-                            'bg-red-900/30 text-red-400'
-                          }`}>
-                            {deposit.status.toUpperCase()}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Withdrawals Tab */}
-        {activeTab === 'withdrawals' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-1">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <h3 className="font-bold text-lg mb-6">Withdraw Funds</h3>
-                {!profile?.is_approved ? (
-                  <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-lg p-4">
-                    <AlertCircle className="h-5 w-5 text-yellow-400 mb-2" />
-                    <p className="text-sm text-yellow-300 font-semibold">KYC Required</p>
-                    <p className="text-xs text-zinc-400 mt-2">Complete KYC to withdraw funds</p>
-                  </div>
-                ) : (
-                  <button disabled className="w-full px-4 py-3 bg-zinc-700 text-zinc-400 rounded-lg font-semibold cursor-not-allowed">
-                    Insufficient Balance
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="lg:col-span-2">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-                <h3 className="font-bold text-lg mb-6">Withdrawal History</h3>
-                <p className="text-zinc-500 text-center py-8">No withdrawals yet</p>
-              </div>
-            </div>
+    <div className="container mx-auto p-4">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold">Welcome, {user?.full_name || 'User'}</h1>
+        {user && !user.is_approved && (
+          <div className="mt-2 p-3 bg-yellow-100 text-yellow-800 rounded-md flex items-center">
+            <AlertCircle className="w-5 h-5 mr-2" />
+            Complete KYC verification to enable deposits and withdrawals
           </div>
         )}
       </div>
+
+      {/* Tabs */}
+      <div className="flex border-b mb-6">
+        {(['overview', 'deposit', 'kyc', 'history'] as const).map((tab) => (
+          <button
+            key={tab}
+            className={`px-4 py-2 ${activeTab === tab ? 'border-b-2 border-blue-500 text-blue-500' : 'text-gray-500'}`}
+            onClick={() => tab === 'kyc' ? router.push('/kyc') : setActiveTab(tab)}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="p-4 bg-white rounded-lg shadow">
+            <div className="flex items-center">
+              <Wallet className="w-6 h-6 text-blue-500 mr-2" />
+              <h3 className="text-lg font-semibold">Available Balance</h3>
+            </div>
+            <p className="text-2xl font-bold mt-2">${balance.toFixed(2)}</p>
+          </div>
+          <div className="p-4 bg-white rounded-lg shadow">
+            <div className="flex items-center">
+              <Clock className="w-6 h-6 text-yellow-500 mr-2" />
+              <h3 className="text-lg font-semibold">Pending Balance</h3>
+            </div>
+            <p className="text-2xl font-bold mt-2">${pendingBalance.toFixed(2)}</p>
+          </div>
+          <div className="p-4 bg-white rounded-lg shadow">
+            <div className="flex items-center">
+              <TrendingUp className="w-6 h-6 text-green-500 mr-2" />
+              <h3 className="text-lg font-semibold">Total Deposits</h3>
+            </div>
+            <p className="text-2xl font-bold mt-2">
+              ${deposits.reduce((sum, d) => sum + parseFloat(d.amount), 0).toFixed(2)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Deposit Tab */}
+      {activeTab === 'deposit' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="p-6 bg-white rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4">Make a Deposit</h2>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Select Bank Account</label>
+              {bankAccounts.length > 0 ? (
+                <select
+                  value={selectedBank}
+                  onChange={(e) => setSelectedBank(e.target.value)}
+                  className="w-full p-2 border rounded-md"
+                >
+                  {bankAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.bank_name} - {account.account_number.slice(-4)}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-red-500">No active bank accounts found</p>
+              )}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Deposit Amount ($)</label>
+              <input
+                type="number"
+                value={depositAmount}
+                onChange={(e) => setDepositAmount(e.target.value)}
+                className="w-full p-2 border rounded-md"
+                placeholder="Enter amount"
+                min="10"
+              />
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1">Payment Proof</label>
+              <input
+                type="file"
+                onChange={(e) => e.target.files && setProofFile(e.target.files[0])}
+                className="w-full p-2 border rounded-md"
+                accept="image/*,.pdf"
+              />
+            </div>
+            <button
+              onClick={handleDepositSubmit}
+              disabled={submitting}
+              className="w-full bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600 disabled:bg-gray-400"
+            >
+              {submitting ? 'Submitting...' : 'Submit Deposit'}
+            </button>
+          </div>
+          <div className="p-6 bg-white rounded-lg shadow">
+            <h2 className="text-xl font-semibold mb-4">Bank Details</h2>
+            {bankAccounts.length > 0 ? (
+              bankAccounts.map((account) => (
+                <div key={account.id} className="mb-4">
+                  <div className="flex justify-between items-center">
+                    <p><strong>Bank:</strong> {account.bank_name}</p>
+                    <button onClick={() => copyToClipboard(account.bank_name, 'Bank Name')}>
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p><strong>Account:</strong> {account.account_number}</p>
+                    <button onClick={() => copyToClipboard(account.account_number, 'Account Number')}>
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p><strong>Routing:</strong> {account.routing_number}</p>
+                    <button onClick={() => copyToClipboard(account.routing_number, 'Routing Number')}>
+                      <Copy className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <p><strong>Instructions:</strong> {account.instructions}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-gray-500">No bank accounts available</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* KYC Tab */}
+      {activeTab === 'kyc' && (
+        <div className="p-6 bg-white rounded-lg shadow">
+          <h2 className="text-xl font-semibold mb-4">KYC Verification</h2>
+          <p className="text-gray-500 mb-4">Please complete your KYC verification to enable deposits and withdrawals.</p>
+          <button
+            onClick={() => router.push('/kyc')}
+            className="bg-blue-500 text-white p-2 rounded-md hover:bg-blue-600"
+          >
+            Go to KYC Page
+          </button>
+        </div>
+      )}
+
+      {/* History Tab */}
+      {activeTab === 'history' && (
+        <div classNameと思い> <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Transaction History</h2>
+          <div className="mb-4">
+            <h3 className="text-lg font-medium mb-2">Recent Deposits</h3>
+            {deposits.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-gray-500">
+                      <th className="p-2">Date</th>
+                      <th className="p-2">Amount</th>
+                      <th className="p-2">Bank</th>
+                      <th className="p-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deposits.map((deposit) => (
+                      <tr key={deposit.id}>
+                        <td className="p-2">{new Date(deposit.created_at).toLocaleDateString()}</td>
+                        <td className="p-2">${parseFloat(deposit.amount).toFixed(2)}</td>
+                        <td className="p-2">{deposit.bank_accounts?.bank_name}</td>
+                        <td className="p-2">{getStatusBadge(deposit.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500">No deposits found</p>
+            )}
+          </div>
+          <div>
+            <h3 className="text-lg font-medium mb-2">Recent Withdrawals</h3>
+            {withdrawals.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-gray-500">
+                      <th className="p-2">Date</th>
+                      <th className="p-2">Amount</th>
+                      <th className="p-2">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withdrawals.map((withdrawal) => (
+                      <tr key={withdrawal.id}>
+                        <td className="p-2">{new Date(withdrawal.created_at).toLocaleDateString()}</td>
+                        <td className="p-2">${parseFloat(withdrawal.amount).toFixed(2)}</td>
+                        <td className="p-2">{getStatusBadge(withdrawal.status)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500">No withdrawals found</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
