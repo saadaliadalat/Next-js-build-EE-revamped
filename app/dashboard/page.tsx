@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { PostgrestError } from '@supabase/supabase-js';
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
@@ -158,7 +157,7 @@ export default function EnhancedDashboard() {
       return;
     }
 
-    setDeposits(data as Deposit[] || []);
+    setDeposits((data as unknown as Deposit[]) || []);
   }
 
   async function fetchWithdrawals() {
@@ -241,10 +240,11 @@ export default function EnhancedDashboard() {
       setProofFile(null);
       fetchDeposits();
       fetchBalance();
-    } catch (error: PostgrestError) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       toast({
         title: "Error",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
