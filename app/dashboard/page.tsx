@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { supabase, PostgrestError } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { PostgrestError } from '@supabase/supabase-js';
 import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
@@ -77,22 +78,32 @@ export default function EnhancedDashboard() {
       return;
     }
 
-    const { data: userData } = await supabase
+    const { data: userData, error } = await supabase
       .from('users')
       .select('id, full_name, is_approved')
       .eq('id', session.user.id)
       .single();
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
 
     setUser(userData as User);
     setLoading(false);
   }
 
   async function fetchBankAccounts() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('bank_accounts')
       .select('id, bank_name, account_number, routing_number, instructions')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
 
     setBankAccounts(data as BankAccount[] || []);
     if (data && data.length > 0) {
@@ -102,19 +113,29 @@ export default function EnhancedDashboard() {
 
   async function fetchBalance() {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('wallets')
       .select('balance')
       .eq('user_id', user.id)
       .single();
 
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+
     setBalance(data?.balance || 0);
 
-    const { data: pendingDeposits } = await supabase
+    const { data: pendingDeposits, error: pendingError } = await supabase
       .from('deposits')
       .select('amount')
       .eq('user_id', user.id)
       .eq('status', 'pending');
+
+    if (pendingError) {
+      toast({ title: "Error", description: pendingError.message, variant: "destructive" });
+      return;
+    }
 
     const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
     setPendingBalance(pending);
@@ -122,7 +143,7 @@ export default function EnhancedDashboard() {
 
   async function fetchDeposits() {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('deposits')
       .select(`
         id, amount, status, created_at, bank_account_id,
@@ -132,17 +153,27 @@ export default function EnhancedDashboard() {
       .order('created_at', { ascending: false })
       .limit(10);
 
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
+
     setDeposits(data as Deposit[] || []);
   }
 
   async function fetchWithdrawals() {
     if (!user) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('withdrawals')
       .select('id, amount, status, created_at')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(10);
+
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+      return;
+    }
 
     setWithdrawals(data as Withdrawal[] || []);
   }
@@ -210,7 +241,7 @@ export default function EnhancedDashboard() {
       setProofFile(null);
       fetchDeposits();
       fetchBalance();
-    } catch (error: PostgrestError | any) {
+    } catch (error: PostgrestError) {
       toast({
         title: "Error",
         description: error.message,
@@ -415,7 +446,7 @@ export default function EnhancedDashboard() {
 
       {/* History Tab */}
       {activeTab === 'history' && (
-        <div classNameと思い> <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold mb-4">Transaction History</h2>
           <div className="mb-4">
             <h3 className="text-lg font-medium mb-2">Recent Deposits</h3>
@@ -435,7 +466,7 @@ export default function EnhancedDashboard() {
                       <tr key={deposit.id}>
                         <td className="p-2">{new Date(deposit.created_at).toLocaleDateString()}</td>
                         <td className="p-2">${parseFloat(deposit.amount).toFixed(2)}</td>
-                        <td className="p-2">{deposit.bank_accounts?.bank_name}</td>
+                        <td className="p-2">{deposit.bank_accounts?.bank_name || 'Unknown'}</td>
                         <td className="p-2">{getStatusBadge(deposit.status)}</td>
                       </tr>
                     ))}
