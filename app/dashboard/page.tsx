@@ -6,26 +6,60 @@ import { useRouter } from 'next/navigation';
 import {
   TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
   Clock, CheckCircle, XCircle, Copy, AlertCircle,
-  Upload, FileText, DollarSign, CreditCard, RefreshCw,
-  Eye, Info
+  Upload, FileText, CreditCard, RefreshCw, Eye, Info
 } from 'lucide-react';
+
+interface User {
+  id: string;
+  email: string;
+  full_name: string;
+  is_approved: boolean;
+}
+
+interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_holder: string;
+  account_number: string;
+  routing_number: string | null;
+  instructions: string | null;
+}
+
+interface Deposit {
+  id: string;
+  user_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  rejection_reason?: string;
+  admin_notes?: string;
+}
+
+interface Withdrawal {
+  id: string;
+  user_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  rejection_reason?: string;
+  admin_notes?: string;
+}
 
 export default function UserDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [balance, setBalance] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
   const [activeTab, setActiveTab] = useState('overview');
-  const [bankAccounts, setBankAccounts] = useState([]);
-  const [deposits, setDeposits] = useState([]);
-  const [withdrawals, setWithdrawals] = useState([]);
-  const [kycStatus, setKycStatus] = useState('not_submitted');
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [kycStatus, setKycStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   const [depositAmount, setDepositAmount] = useState('');
-  const [proofFile, setProofFile] = useState(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [copiedField, setCopiedField] = useState('');
 
   useEffect(() => {
@@ -55,8 +89,9 @@ export default function UserDashboard() {
       .eq('id', authUser.id)
       .single();
 
-    setUser({ ...authUser, ...userData });
-    setProfile(userData);
+    if (userData) {
+      setUser(userData as User);
+    }
     setLoading(false);
   }
 
@@ -67,29 +102,32 @@ export default function UserDashboard() {
       .eq('is_active', true)
       .order('created_at', { ascending: false });
     
-    setBankAccounts(data || []);
+    setBankAccounts(data as BankAccount[] || []);
   }
 
   async function fetchBalance() {
+    if (!user) return;
+
     // Try to get balance
     let { data: balanceData, error } = await supabase
       .from('balances')
-      .select('available_balance')
+      .select('amount')
       .eq('user_id', user.id)
+      .eq('currency', 'USD')
       .single();
 
     // If balance doesn't exist, create it
     if (error && error.code === 'PGRST116') {
       const { data: newBalance } = await supabase
         .from('balances')
-        .insert({ user_id: user.id, available_balance: 0, currency: 'USD' })
+        .insert({ user_id: user.id, amount: 0, currency: 'USD' })
         .select()
         .single();
       
       balanceData = newBalance;
     }
 
-    setBalance(balanceData?.available_balance || 0);
+    setBalance(balanceData?.amount || 0);
 
     // Calculate pending deposits
     const { data: pendingDeposits } = await supabase
@@ -98,25 +136,26 @@ export default function UserDashboard() {
       .eq('user_id', user.id)
       .eq('status', 'pending');
     
-    const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
+    const pending = pendingDeposits?.reduce((sum, d) => sum + Number(d.amount), 0) || 0;
     setPendingBalance(pending);
   }
 
   async function fetchDeposits() {
+    if (!user) return;
+
     const { data } = await supabase
       .from('deposits')
-      .select(`
-        *,
-        bank_accounts(bank_name, account_number)
-      `)
+      .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(10);
     
-    setDeposits(data || []);
+    setDeposits(data as Deposit[] || []);
   }
 
   async function fetchWithdrawals() {
+    if (!user) return;
+
     const { data } = await supabase
       .from('withdrawals')
       .select('*')
@@ -124,10 +163,12 @@ export default function UserDashboard() {
       .order('created_at', { ascending: false })
       .limit(10);
     
-    setWithdrawals(data || []);
+    setWithdrawals(data as Withdrawal[] || []);
   }
 
   async function fetchKycStatus() {
+    if (!user) return;
+
     const { data } = await supabase
       .from('kyc_submissions')
       .select('status')
@@ -137,14 +178,14 @@ export default function UserDashboard() {
       .single();
 
     if (data) {
-      setKycStatus(data.status);
+      setKycStatus(data.status as any);
     } else {
       setKycStatus('not_submitted');
     }
   }
 
   async function handleDepositSubmit() {
-    if (!profile?.is_approved) {
+    if (!user?.is_approved) {
       alert('Complete KYC verification to make deposits');
       router.push('/kyc');
       return;
@@ -172,7 +213,7 @@ export default function UserDashboard() {
       const fileName = `${user.id}/${Date.now()}.${fileExt}`;
       
       const { error: uploadError } = await supabase.storage
-        .from('payment-proofs')
+        .from('deposit-proofs')
         .upload(fileName, proofFile);
 
       if (uploadError) throw uploadError;
@@ -181,10 +222,9 @@ export default function UserDashboard() {
         .from('deposits')
         .insert({
           user_id: user.id,
-          bank_account_id: bankAccounts[0].id,
           amount: parseFloat(depositAmount),
           currency: 'USD',
-          payment_proof_url: fileName,
+          proof_filename: fileName,
           status: 'pending'
         });
 
@@ -196,29 +236,29 @@ export default function UserDashboard() {
       fetchDeposits();
       fetchBalance();
 
-    } catch (error) {
+    } catch (error: any) {
       alert('Error: ' + error.message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  function copyToClipboard(text, label) {
+  function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text);
     setCopiedField(label);
     alert(`${label} copied to clipboard!`);
     setTimeout(() => setCopiedField(''), 2000);
   }
 
-  function getStatusBadge(status) {
-    const styles = {
+  function getStatusBadge(status: string) {
+    const styles: Record<string, string> = {
       pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/50',
       approved: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50',
       rejected: 'bg-red-900/30 text-red-400 border-red-800/50',
       completed: 'bg-blue-900/30 text-blue-400 border-blue-800/50'
     };
 
-    const icons = {
+    const icons: Record<string, JSX.Element> = {
       pending: <Clock className="w-3 h-3" />,
       approved: <CheckCircle className="w-3 h-3" />,
       rejected: <XCircle className="w-3 h-3" />,
@@ -226,7 +266,7 @@ export default function UserDashboard() {
     };
 
     return (
-      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border ${styles[status]}`}>
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border ${styles[status] || ''}`}>
         {icons[status]}
         {status.toUpperCase()}
       </span>
@@ -246,11 +286,11 @@ export default function UserDashboard() {
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Welcome back, {profile?.full_name || profile?.email}</h1>
+          <h1 className="text-4xl font-bold mb-2">Welcome back, {user?.full_name || user?.email}</h1>
           <p className="text-zinc-400">Manage your trading account</p>
         </div>
 
-        {/* KYC Status Banner */}
+        {/* KYC Status Banners */}
         {kycStatus === 'not_submitted' && (
           <div className="bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl p-6 shadow-xl mb-6">
             <div className="flex items-center justify-between">
@@ -283,7 +323,7 @@ export default function UserDashboard() {
           </div>
         )}
 
-        {kycStatus === 'approved' && profile?.is_approved && (
+        {kycStatus === 'approved' && user?.is_approved && (
           <div className="bg-emerald-900/20 border border-emerald-800/50 rounded-xl p-4 mb-6 flex items-center gap-3">
             <CheckCircle className="h-5 w-5 text-emerald-400" />
             <p className="text-sm font-semibold text-emerald-400">✓ Account Verified</p>
@@ -338,7 +378,7 @@ export default function UserDashboard() {
               <p className="text-zinc-400 text-sm font-semibold">Total Deposited</p>
             </div>
             <h2 className="text-3xl font-bold text-blue-400">
-              ${deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + parseFloat(d.amount), 0).toFixed(2)}
+              ${deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + Number(d.amount), 0).toFixed(2)}
             </h2>
             <p className="text-xs text-zinc-400 mt-2">All-time</p>
           </div>
@@ -346,7 +386,7 @@ export default function UserDashboard() {
 
         {/* Tabs */}
         <div className="flex gap-4 mb-8 overflow-x-auto">
-          {['overview', 'deposit', 'withdraw', 'history'].map((tab) => (
+          {['overview', 'deposit', 'history'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -375,7 +415,7 @@ export default function UserDashboard() {
                       <div className="flex items-center gap-3">
                         <ArrowUpRight className="h-5 w-5 text-emerald-400" />
                         <div>
-                          <p className="font-semibold">${parseFloat(deposit.amount).toFixed(2)}</p>
+                          <p className="font-semibold">${Number(deposit.amount).toFixed(2)}</p>
                           <p className="text-xs text-zinc-500">
                             {new Date(deposit.created_at).toLocaleDateString()}
                           </p>
@@ -399,7 +439,7 @@ export default function UserDashboard() {
                       <div className="flex items-center gap-3">
                         <ArrowDownRight className="h-5 w-5 text-red-400" />
                         <div>
-                          <p className="font-semibold">${parseFloat(withdrawal.amount).toFixed(2)}</p>
+                          <p className="font-semibold">${Number(withdrawal.amount).toFixed(2)}</p>
                           <p className="text-xs text-zinc-500">
                             {new Date(withdrawal.created_at).toLocaleDateString()}
                           </p>
@@ -438,10 +478,10 @@ export default function UserDashboard() {
                       <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-3">
                         <div>
                           <p className="text-xs text-zinc-400">Account Holder</p>
-                          <p className="font-semibold">{bank.account_holder_name}</p>
+                          <p className="font-semibold">{bank.account_holder}</p>
                         </div>
                         <button
-                          onClick={() => copyToClipboard(bank.account_holder_name, 'Account Holder')}
+                          onClick={() => copyToClipboard(bank.account_holder, 'Account Holder')}
                           className="p-2 hover:bg-zinc-700 rounded transition"
                         >
                           {copiedField === 'Account Holder' ? (
@@ -476,7 +516,7 @@ export default function UserDashboard() {
                             <p className="font-mono font-semibold">{bank.routing_number}</p>
                           </div>
                           <button
-                            onClick={() => copyToClipboard(bank.routing_number, 'Routing Number')}
+                            onClick={() => copyToClipboard(bank.routing_number!, 'Routing Number')}
                             className="p-2 hover:bg-zinc-700 rounded transition"
                           >
                             {copiedField === 'Routing Number' ? (
@@ -512,7 +552,7 @@ export default function UserDashboard() {
                 <h2 className="text-xl font-bold">Submit Deposit</h2>
               </div>
 
-              {!profile?.is_approved ? (
+              {!user?.is_approved ? (
                 <div className="text-center py-8 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
                   <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
                   <p className="text-yellow-200 font-medium mb-2">KYC Verification Required</p>
@@ -589,17 +629,6 @@ export default function UserDashboard() {
           </div>
         )}
 
-        {/* WITHDRAW TAB */}
-        {activeTab === 'withdraw' && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <div className="text-center py-12">
-              <ArrowDownRight className="w-16 h-16 text-blue-400/50 mx-auto mb-4" />
-              <p className="text-blue-200 text-lg">Withdrawal feature coming soon</p>
-              <p className="text-blue-300/70 text-sm mt-2">Contact support for withdrawal requests</p>
-            </div>
-          </div>
-        )}
-
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -610,7 +639,7 @@ export default function UserDashboard() {
               ).length === 0 ? (
                 <p className="text-zinc-500 text-center py-12">No transactions yet</p>
               ) : (
-                [...deposits.map(d => ({...d, type: 'deposit'})), ...withdrawals.map(w => ({...w, type: 'withdrawal'}))]
+                [...deposits.map(d => ({...d, type: 'deposit' as const})), ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))]
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((transaction) => (
                     <div key={transaction.id} className="p-4 bg-zinc-800/30 rounded-lg">
@@ -627,7 +656,7 @@ export default function UserDashboard() {
                               {new Date(transaction.created_at).toLocaleString()}
                             </p>
                             <p className={`text-lg font-bold mt-1 ${transaction.type === 'deposit' ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {transaction.type === 'deposit' ? '+' : '-'}${parseFloat(transaction.amount).toFixed(2)}
+                              {transaction.type === 'deposit' ? '+' : '-'}${Number(transaction.amount).toFixed(2)}
                             </p>
                           </div>
                         </div>
