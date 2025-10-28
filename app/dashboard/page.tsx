@@ -1,284 +1,278 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { toast } from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 import {
-  TrendingUp,
-  Wallet,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Copy,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Building2,
-  Upload,
-  Eye,
-  EyeOff,
-  Info,
-  XCircle,
+  TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
+  Clock, CheckCircle, XCircle, Copy, AlertCircle,
+  Upload, FileText, DollarSign, CreditCard, RefreshCw,
+  Eye, Info
 } from 'lucide-react';
-import { Navbar } from '@/components/Navbar';
 
-interface BankAccount {
-  id: string;
-  bank_name: string;
-  account_holder: string;
-  account_number: string;
-  routing_number: string;
-  iban: string;
-  swift_code: string;
-  instructions: string;
-}
-
-export default function ProductionDashboard() {
-  const { user, profile, loading: authLoading } = useAuth();
+export default function UserDashboard() {
   const router = useRouter();
-  
-  // State
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
-  const [showBalance, setShowBalance] = useState(true);
-  const [copiedField, setCopiedField] = useState('');
-  
-  // Data
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [balance, setBalance] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
-  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
-  const [deposits, setDeposits] = useState<any[]>([]);
-  const [withdrawals, setWithdrawals] = useState<any[]>([]);
-  const [kycStatus, setKycStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
-  
-  // Forms
-  const [depositForm, setDepositForm] = useState({
-    amount: '',
-    proofFile: null as File | null,
-  });
-  const [depositLoading, setDepositLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [deposits, setDeposits] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
+  const [kycStatus, setKycStatus] = useState('not_submitted');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [depositAmount, setDepositAmount] = useState('');
+  const [proofFile, setProofFile] = useState(null);
+  const [copiedField, setCopiedField] = useState('');
 
   useEffect(() => {
-    if (!authLoading && !user) {
+    checkUser();
+    fetchBankAccounts();
+  }, []);
+
+  useEffect(() => {
+    if (user) {
+      fetchBalance();
+      fetchDeposits();
+      fetchWithdrawals();
+      fetchKycStatus();
+    }
+  }, [user]);
+
+  async function checkUser() {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) {
       router.push('/auth/login');
       return;
     }
-    if (user) {
-      fetchDashboardData();
-    }
-  }, [user, authLoading]);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    try {
-      // Fetch balance
-      const { data: balanceData } = await supabase
+    const { data: userData } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
+
+    setUser({ ...authUser, ...userData });
+    setProfile(userData);
+    setLoading(false);
+  }
+
+  async function fetchBankAccounts() {
+    const { data } = await supabase
+      .from('bank_accounts')
+      .select('*')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false });
+    
+    setBankAccounts(data || []);
+  }
+
+  async function fetchBalance() {
+    // Try to get balance
+    let { data: balanceData, error } = await supabase
+      .from('balances')
+      .select('available_balance')
+      .eq('user_id', user.id)
+      .single();
+
+    // If balance doesn't exist, create it
+    if (error && error.code === 'PGRST116') {
+      const { data: newBalance } = await supabase
         .from('balances')
-        .select('amount')
-        .eq('user_id', user?.id)
-        .eq('currency', 'USD')
+        .insert({ user_id: user.id, available_balance: 0, currency: 'USD' })
+        .select()
         .single();
-
-      setBalance(balanceData?.amount || 0);
-
-      // Fetch pending deposits for pending balance
-      const { data: pendingDeposits } = await supabase
-        .from('deposits')
-        .select('amount')
-        .eq('user_id', user?.id)
-        .eq('status', 'pending');
-
-      const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
-      setPendingBalance(pending);
-
-      // Fetch bank accounts
-      const { data: bankData } = await supabase
-        .from('bank_accounts')
-        .select('*')
-        .eq('is_active', true);
-
-      setBankAccounts(bankData || []);
-
-      // Fetch deposits
-      const { data: depositsData } = await supabase
-        .from('deposits')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      setDeposits(depositsData || []);
-
-      // Fetch withdrawals
-      const { data: withdrawalsData } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      setWithdrawals(withdrawalsData || []);
-
-      // Check KYC status
-      const { data: kycData } = await supabase
-        .from('kyc_submissions')
-        .select('status')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (kycData) {
-        setKycStatus(kycData.status);
-      } else {
-        setKycStatus('not_submitted');
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
+      
+      balanceData = newBalance;
     }
-  };
 
-  const copyToClipboard = (text: string, field: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedField(field);
-    toast.success(`${field} copied!`);
-    setTimeout(() => setCopiedField(''), 2000);
-  };
+    setBalance(balanceData?.available_balance || 0);
 
-  const handleDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    // Calculate pending deposits
+    const { data: pendingDeposits } = await supabase
+      .from('deposits')
+      .select('amount')
+      .eq('user_id', user.id)
+      .eq('status', 'pending');
+    
+    const pending = pendingDeposits?.reduce((sum, d) => sum + parseFloat(d.amount), 0) || 0;
+    setPendingBalance(pending);
+  }
 
-    // Check KYC
+  async function fetchDeposits() {
+    const { data } = await supabase
+      .from('deposits')
+      .select(`
+        *,
+        bank_accounts(bank_name, account_number)
+      `)
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    
+    setDeposits(data || []);
+  }
+
+  async function fetchWithdrawals() {
+    const { data } = await supabase
+      .from('withdrawals')
+      .select('*')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
+    
+    setWithdrawals(data || []);
+  }
+
+  async function fetchKycStatus() {
+    const { data } = await supabase
+      .from('kyc_submissions')
+      .select('status')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: false})
+      .limit(1)
+      .single();
+
+    if (data) {
+      setKycStatus(data.status);
+    } else {
+      setKycStatus('not_submitted');
+    }
+  }
+
+  async function handleDepositSubmit() {
     if (!profile?.is_approved) {
-      toast.error('Please complete KYC verification to deposit funds');
+      alert('Complete KYC verification to make deposits');
       router.push('/kyc');
       return;
     }
 
-    if (!depositForm.proofFile) {
-      toast.error('Please upload payment proof');
+    if (!proofFile) {
+      alert('Please upload payment proof');
       return;
     }
 
-    const amount = parseFloat(depositForm.amount);
-    if (isNaN(amount) || amount < 10) {
-      toast.error('Minimum deposit is $10');
+    if (!depositAmount || parseFloat(depositAmount) < 10) {
+      alert('Minimum deposit is $10');
       return;
     }
 
-    setDepositLoading(true);
+    if (!bankAccounts.length) {
+      alert('No bank accounts available');
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
-      // Upload proof
-      const fileExt = depositForm.proofFile.name.split('.').pop();
-      const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
-
+      const fileExt = proofFile.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+      
       const { error: uploadError } = await supabase.storage
-        .from('deposit-proofs')
-        .upload(fileName, depositForm.proofFile);
+        .from('payment-proofs')
+        .upload(fileName, proofFile);
 
       if (uploadError) throw uploadError;
 
-      // Create deposit
       const { error: depositError } = await supabase
         .from('deposits')
         .insert({
-          user_id: user?.id,
-          amount,
+          user_id: user.id,
+          bank_account_id: bankAccounts[0].id,
+          amount: parseFloat(depositAmount),
           currency: 'USD',
-          proof_filename: fileName,
-          status: 'pending',
+          payment_proof_url: fileName,
+          status: 'pending'
         });
 
       if (depositError) throw depositError;
 
-      toast.success('Deposit request submitted! Awaiting admin approval.');
-      setDepositForm({ amount: '', proofFile: null });
-      
-      // Reset file input
-      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
-      
-      fetchDashboardData();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to submit deposit');
-    } finally {
-      setDepositLoading(false);
-    }
-  };
+      alert('Deposit submitted successfully! Awaiting admin approval.');
+      setDepositAmount('');
+      setProofFile(null);
+      fetchDeposits();
+      fetchBalance();
 
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
+    } catch (error) {
+      alert('Error: ' + error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function copyToClipboard(text, label) {
+    navigator.clipboard.writeText(text);
+    setCopiedField(label);
+    alert(`${label} copied to clipboard!`);
+    setTimeout(() => setCopiedField(''), 2000);
+  }
+
+  function getStatusBadge(status) {
+    const styles = {
       pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/50',
       approved: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50',
       rejected: 'bg-red-900/30 text-red-400 border-red-800/50',
-      completed: 'bg-blue-900/30 text-blue-400 border-blue-800/50',
+      completed: 'bg-blue-900/30 text-blue-400 border-blue-800/50'
     };
 
-    const icons: Record<string, any> = {
-      pending: Clock,
-      approved: CheckCircle2,
-      rejected: XCircle,
-      completed: CheckCircle2,
+    const icons = {
+      pending: <Clock className="w-3 h-3" />,
+      approved: <CheckCircle className="w-3 h-3" />,
+      rejected: <XCircle className="w-3 h-3" />,
+      completed: <CheckCircle className="w-3 h-3" />
     };
-
-    const Icon = icons[status] || AlertCircle;
 
     return (
-      <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold border ${styles[status] || 'bg-zinc-800 text-zinc-400'}`}>
-        <Icon className="h-3 w-3" />
+      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold border ${styles[status]}`}>
+        {icons[status]}
         {status.toUpperCase()}
       </span>
     );
-  };
+  }
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <Navbar />
-        <div className="flex items-center justify-center h-screen">
-          <TrendingUp className="h-12 w-12 animate-spin text-emerald-400" />
-        </div>
+      <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black flex items-center justify-center">
+        <RefreshCw className="w-8 h-8 text-emerald-400 animate-spin" />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
-      <Navbar />
-      
       <div className="max-w-7xl mx-auto p-4 md:p-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-4xl font-bold mb-2">Welcome back, {profile?.full_name}</h1>
+          <h1 className="text-4xl font-bold mb-2">Welcome back, {profile?.full_name || profile?.email}</h1>
           <p className="text-zinc-400">Manage your trading account</p>
         </div>
 
         {/* KYC Status Banner */}
         {kycStatus === 'not_submitted' && (
-          <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
-            <AlertCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-bold text-lg text-red-400">⚠️ KYC Required</p>
-              <p className="text-sm text-zinc-300 mt-1">
-                Complete KYC verification to deposit funds and start trading.
-              </p>
+          <div className="bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl p-6 shadow-xl mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <AlertCircle className="w-8 h-8 text-white flex-shrink-0" />
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-1">Complete KYC Verification</h3>
+                  <p className="text-white/90">Verify your identity to start trading and making deposits</p>
+                </div>
+              </div>
               <button
                 onClick={() => router.push('/kyc')}
-                className="mt-3 px-4 py-2 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 transition"
+                className="bg-white text-orange-600 px-6 py-3 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
               >
-                Complete KYC Now
+                Start KYC
               </button>
             </div>
           </div>
         )}
 
         {kycStatus === 'pending' && (
-          <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
+          <div className="bg-yellow-900/20 border border-yellow-800/50 rounded-xl p-6 mb-6 flex items-start gap-4">
             <Clock className="h-6 w-6 text-yellow-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-bold text-lg text-yellow-400">⏳ KYC Under Review</p>
@@ -290,14 +284,14 @@ export default function ProductionDashboard() {
         )}
 
         {kycStatus === 'approved' && profile?.is_approved && (
-          <div className="bg-emerald-900/20 border border-emerald-800/50 rounded-xl p-4 mb-8 flex items-center gap-3">
-            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+          <div className="bg-emerald-900/20 border border-emerald-800/50 rounded-xl p-4 mb-6 flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-emerald-400" />
             <p className="text-sm font-semibold text-emerald-400">✓ Account Verified</p>
           </div>
         )}
 
         {kycStatus === 'rejected' && (
-          <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-6 mb-8 flex items-start gap-4">
+          <div className="bg-red-900/20 border border-red-800/50 rounded-xl p-6 mb-6 flex items-start gap-4">
             <XCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="font-bold text-lg text-red-400">❌ KYC Rejected</p>
@@ -322,20 +316,9 @@ export default function ProductionDashboard() {
                 <Wallet className="h-5 w-5 text-emerald-400" />
                 <p className="text-zinc-400 text-sm font-semibold">Available Balance</p>
               </div>
-              <button
-                onClick={() => setShowBalance(!showBalance)}
-                className="p-2 hover:bg-emerald-900/20 rounded-lg transition"
-              >
-                {showBalance ? (
-                  <Eye className="h-4 w-4 text-emerald-400" />
-                ) : (
-                  <EyeOff className="h-4 w-4 text-emerald-400" />
-                )}
-              </button>
             </div>
-            <h2 className="text-3xl font-bold">
-              {showBalance ? `$${balance.toFixed(2)}` : '••••••'}
-            </h2>
+            <h2 className="text-3xl font-bold">${balance.toFixed(2)}</h2>
+            <p className="text-xs text-emerald-400 mt-2">Ready to trade</p>
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -346,16 +329,18 @@ export default function ProductionDashboard() {
             <h2 className="text-3xl font-bold text-yellow-400">
               ${pendingBalance.toFixed(2)}
             </h2>
+            <p className="text-xs text-zinc-400 mt-2">Awaiting approval</p>
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <TrendingUp className="h-5 w-5 text-blue-400" />
-              <p className="text-zinc-400 text-sm font-semibold">Total Deposits</p>
+              <p className="text-zinc-400 text-sm font-semibold">Total Deposited</p>
             </div>
             <h2 className="text-3xl font-bold text-blue-400">
               ${deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + parseFloat(d.amount), 0).toFixed(2)}
             </h2>
+            <p className="text-xs text-zinc-400 mt-2">All-time</p>
           </div>
         </div>
 
@@ -368,7 +353,7 @@ export default function ProductionDashboard() {
               className={`px-6 py-3 rounded-lg font-semibold transition capitalize whitespace-nowrap ${
                 activeTab === tab
                   ? 'bg-emerald-500 text-black'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800'
               }`}
             >
               {tab}
@@ -376,7 +361,7 @@ export default function ProductionDashboard() {
           ))}
         </div>
 
-        {/* Overview Tab */}
+        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -412,7 +397,7 @@ export default function ProductionDashboard() {
                   withdrawals.slice(0, 5).map((withdrawal) => (
                     <div key={withdrawal.id} className="flex items-center justify-between p-4 bg-zinc-800/30 rounded-lg">
                       <div className="flex items-center gap-3">
-                        <ArrowDownLeft className="h-5 w-5 text-red-400" />
+                        <ArrowDownRight className="h-5 w-5 text-red-400" />
                         <div>
                           <p className="font-semibold">${parseFloat(withdrawal.amount).toFixed(2)}</p>
                           <p className="text-xs text-zinc-500">
@@ -429,13 +414,13 @@ export default function ProductionDashboard() {
           </div>
         )}
 
-        {/* Deposit Tab */}
+        {/* DEPOSIT TAB */}
         {activeTab === 'deposit' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Bank Details */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
               <div className="flex items-center gap-3 mb-6">
-                <Building2 className="h-6 w-6 text-emerald-400" />
+                <CreditCard className="h-6 w-6 text-emerald-400" />
                 <h2 className="text-xl font-bold">Bank Details</h2>
               </div>
 
@@ -453,14 +438,14 @@ export default function ProductionDashboard() {
                       <div className="flex items-center justify-between bg-zinc-800/50 rounded-lg p-3">
                         <div>
                           <p className="text-xs text-zinc-400">Account Holder</p>
-                          <p className="font-semibold">{bank.account_holder}</p>
+                          <p className="font-semibold">{bank.account_holder_name}</p>
                         </div>
                         <button
-                          onClick={() => copyToClipboard(bank.account_holder, 'Account Holder')}
+                          onClick={() => copyToClipboard(bank.account_holder_name, 'Account Holder')}
                           className="p-2 hover:bg-zinc-700 rounded transition"
                         >
                           {copiedField === 'Account Holder' ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                            <CheckCircle className="h-4 w-4 text-emerald-400" />
                           ) : (
                             <Copy className="h-4 w-4 text-zinc-400" />
                           )}
@@ -477,7 +462,7 @@ export default function ProductionDashboard() {
                           className="p-2 hover:bg-zinc-700 rounded transition"
                         >
                           {copiedField === 'Account Number' ? (
-                            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                            <CheckCircle className="h-4 w-4 text-emerald-400" />
                           ) : (
                             <Copy className="h-4 w-4 text-zinc-400" />
                           )}
@@ -495,7 +480,7 @@ export default function ProductionDashboard() {
                             className="p-2 hover:bg-zinc-700 rounded transition"
                           >
                             {copiedField === 'Routing Number' ? (
-                              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                              <CheckCircle className="h-4 w-4 text-emerald-400" />
                             ) : (
                               <Copy className="h-4 w-4 text-zinc-400" />
                             )}
@@ -527,81 +512,95 @@ export default function ProductionDashboard() {
                 <h2 className="text-xl font-bold">Submit Deposit</h2>
               </div>
 
-              <form onSubmit={handleDeposit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-semibold text-zinc-300 mb-2">
-                    Amount (USD)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="10"
-                    placeholder="Minimum $10"
-                    value={depositForm.amount}
-                    onChange={(e) => setDepositForm({ ...depositForm, amount: e.target.value })}
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
-                    required
-                    disabled={!profile?.is_approved}
-                  />
+              {!profile?.is_approved ? (
+                <div className="text-center py-8 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+                  <AlertCircle className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
+                  <p className="text-yellow-200 font-medium mb-2">KYC Verification Required</p>
+                  <p className="text-yellow-300/70 text-sm mb-4">Complete KYC to make deposits</p>
+                  <button
+                    onClick={() => router.push('/kyc')}
+                    className="bg-yellow-500 text-white px-6 py-2 rounded-lg hover:bg-yellow-600 transition"
+                  >
+                    Verify Now
+                  </button>
                 </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Payment Proof *
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) => setDepositForm({ 
-                      ...depositForm, 
-                      proofFile: e.target.files?.[0] || null 
-                    })}
-                    className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 file:transition-all focus:outline-none focus:border-emerald-500"
-                    required
-                    disabled={!profile?.is_approved}
-                  />
-                  <p className="text-xs text-zinc-400 mt-2 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    JPG, PNG, PDF - Max 5MB
-                  </p>
-                </div>
-
-                {depositForm.proofFile && (
-                  <div className="text-xs text-emerald-400 p-3 bg-emerald-900/10 border border-emerald-800/30 rounded-lg">
-                    ✓ Selected: {depositForm.proofFile.name}
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-zinc-300 mb-2">
+                      Amount (USD)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="10"
+                      placeholder="Minimum $10"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500"
+                      required
+                    />
                   </div>
-                )}
 
-                <button
-                  type="submit"
-                  disabled={depositLoading || !profile?.is_approved}
-                  className="w-full px-4 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
-                >
-                  {depositLoading ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-black border-t-transparent" />
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpRight className="h-5 w-5" />
-                      Submit Deposit
-                    </>
+                  <div>
+                    <label className="block text-sm font-semibold text-zinc-300 mb-2 flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Payment Proof *
+                    </label>
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                      className="w-full px-4 py-3 bg-zinc-800 border border-zinc-700 rounded-lg text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/10 file:text-emerald-400 hover:file:bg-emerald-500/20 file:transition-all focus:outline-none focus:border-emerald-500"
+                      required
+                    />
+                    <p className="text-xs text-zinc-400 mt-2 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      JPG, PNG, PDF - Max 5MB
+                    </p>
+                  </div>
+
+                  {proofFile && (
+                    <div className="text-xs text-emerald-400 p-3 bg-emerald-900/10 border border-emerald-800/30 rounded-lg">
+                      ✓ Selected: {proofFile.name}
+                    </div>
                   )}
-                </button>
 
-                {!profile?.is_approved && (
-                  <p className="text-xs text-red-400 text-center">
-                    Complete KYC verification to enable deposits
-                  </p>
-                )}
-              </form>
+                  <button
+                    onClick={handleDepositSubmit}
+                    disabled={submitting}
+                    className="w-full px-4 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <RefreshCw className="h-5 w-5 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <ArrowUpRight className="h-5 w-5" />
+                        Submit Deposit
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* History Tab */}
+        {/* WITHDRAW TAB */}
+        {activeTab === 'withdraw' && (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <div className="text-center py-12">
+              <ArrowDownRight className="w-16 h-16 text-blue-400/50 mx-auto mb-4" />
+              <p className="text-blue-200 text-lg">Withdrawal feature coming soon</p>
+              <p className="text-blue-300/70 text-sm mt-2">Contact support for withdrawal requests</p>
+            </div>
+          </div>
+        )}
+
+        {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
             <h3 className="font-bold text-lg mb-6">Transaction History</h3>
@@ -620,7 +619,7 @@ export default function ProductionDashboard() {
                           {transaction.type === 'deposit' ? (
                             <ArrowUpRight className="h-5 w-5 text-emerald-400 mt-1" />
                           ) : (
-                            <ArrowDownLeft className="h-5 w-5 text-red-400 mt-1" />
+                            <ArrowDownRight className="h-5 w-5 text-red-400 mt-1" />
                           )}
                           <div>
                             <p className="font-semibold capitalize">{transaction.type}</p>
@@ -634,6 +633,11 @@ export default function ProductionDashboard() {
                         </div>
                         {getStatusBadge(transaction.status)}
                       </div>
+                      {transaction.rejection_reason && (
+                        <p className="text-xs text-red-400 mt-3 p-2 bg-red-900/20 rounded">
+                          Reason: {transaction.rejection_reason}
+                        </p>
+                      )}
                       {transaction.admin_notes && (
                         <p className="text-xs text-zinc-400 mt-3 p-2 bg-zinc-900 rounded">
                           Admin Note: {transaction.admin_notes}
