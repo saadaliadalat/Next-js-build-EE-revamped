@@ -1,42 +1,77 @@
-"use client"
-import { useState } from 'react';
+'use client';
+
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
 import {
-  Upload,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  FileText,
-  User,
-  MapPin,
-  Camera,
-  ArrowLeft,
+  Upload, CheckCircle2, AlertCircle, Loader2, FileText,
+  User, MapPin, Camera, ArrowLeft
 } from 'lucide-react';
 
 export default function KYCPage() {
+  const router = useRouter();
+  const [user, setUser] = useState(null);
   const [kycStatus, setKycStatus] = useState('not-submitted');
+  const [existingKyc, setExistingKyc] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(true);
   
   const [formData, setFormData] = useState({
-    fullName: 'Ahmed Hassan',
-    email: 'ahmed@example.com',
+    fullName: '',
+    email: '',
     dateOfBirth: '',
-    nationality: 'Pakistani',
+    nationality: '',
     address: '',
-    city: 'Rawalpindi',
-    state: 'Punjab',
+    city: '',
+    state: '',
     zipCode: '',
-    idFile: null as File | null,
-    addressFile: null as File | null,
-    selfieFile: null as File | null,
+    idFile: null,
+    addressFile: null,
+    selfieFile: null,
   });
 
-  const [uploadProgress, setUploadProgress] = useState({
-    id: false,
-    address: false,
-    selfie: false,
-  });
+  useEffect(() => {
+    checkUser();
+  }, []);
 
-  const handleFileSelect = (type: string, file: File | null) => {
+  async function checkUser() {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) {
+      router.push('/auth/login');
+      return;
+    }
+
+    const { data: userData } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
+
+    setUser({ ...authUser, ...userData });
+    setFormData(prev => ({
+      ...prev,
+      fullName: userData?.full_name || '',
+      email: authUser.email || ''
+    }));
+
+    // Check existing KYC
+    const { data: kycData } = await supabase
+      .from('kyc_submissions')
+      .select('*')
+      .eq('user_id', authUser.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (kycData) {
+      setKycStatus(kycData.status);
+      setExistingKyc(kycData);
+    }
+
+    setLoading(false);
+  }
+
+  function handleFileSelect(type, file) {
     if (!file) return;
     
     if (file.size > 5 * 1024 * 1024) {
@@ -51,43 +86,135 @@ export default function KYCPage() {
     } else if (type === 'selfie') {
       setFormData(prev => ({ ...prev, selfieFile: file }));
     }
-  };
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-
-    if (!formData.idFile || !formData.addressFile || !formData.selfieFile) {
-      alert('Please upload all required documents');
-      setSubmitting(false);
+  async function handleSubmit() {
+    if (!formData.fullName || !formData.dateOfBirth || !formData.nationality || !formData.address || !formData.city || !formData.zipCode) {
+      alert('Please fill all required fields');
       return;
     }
 
-    setTimeout(() => {
+    if (!formData.idFile || !formData.addressFile || !formData.selfieFile) {
+      alert('Please upload all required documents');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      // Upload ID document
+      const idExt = formData.idFile.name.split('.').pop();
+      const idFileName = `${user.id}/id-${Date.now()}.${idExt}`;
+      const { error: idError } = await supabase.storage
+        .from('kyc-documents')
+        .upload(idFileName, formData.idFile);
+      if (idError) throw idError;
+
+      // Upload address proof
+      const addressExt = formData.addressFile.name.split('.').pop();
+      const addressFileName = `${user.id}/address-${Date.now()}.${addressExt}`;
+      const { error: addressError } = await supabase.storage
+        .from('kyc-documents')
+        .upload(addressFileName, formData.addressFile);
+      if (addressError) throw addressError;
+
+      // Upload selfie
+      const selfieExt = formData.selfieFile.name.split('.').pop();
+      const selfieFileName = `${user.id}/selfie-${Date.now()}.${selfieExt}`;
+      const { error: selfieError } = await supabase.storage
+        .from('kyc-documents')
+        .upload(selfieFileName, formData.selfieFile);
+      if (selfieError) throw selfieError;
+
+      // Create KYC submission
+      const { error: kycError } = await supabase
+        .from('kyc_submissions')
+        .insert({
+          user_id: user.id,
+          full_name: formData.fullName,
+          email: formData.email,
+          date_of_birth: formData.dateOfBirth,
+          nationality: formData.nationality,
+          address: formData.address,
+          city: formData.city,
+          state: formData.state,
+          zip_code: formData.zipCode,
+          id_document_url: idFileName,
+          address_proof_url: addressFileName,
+          selfie_url: selfieFileName,
+          status: 'pending'
+        });
+
+      if (kycError) throw kycError;
+
+      // Update user KYC status
+      await supabase
+        .from('users')
+        .update({ kyc_status: 'pending' })
+        .eq('id', user.id);
+
+      alert('KYC submitted successfully! Awaiting admin review.');
       setKycStatus('pending');
-      setSubmitting(false);
+      
+      // Clear form
       setFormData({
-        fullName: 'Ahmed Hassan',
-        email: 'ahmed@example.com',
+        fullName: formData.fullName,
+        email: formData.email,
         dateOfBirth: '',
-        nationality: 'Pakistani',
+        nationality: '',
         address: '',
-        city: 'Rawalpindi',
-        state: 'Punjab',
+        city: '',
+        state: '',
         zipCode: '',
         idFile: null,
         addressFile: null,
         selfieFile: null,
       });
-    }, 2000);
-  };
+
+    } catch (error) {
+      alert('Error: ' + error.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-400" />
+      </div>
+    );
+  }
+
+  if (kycStatus === 'approved') {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
+        <div className="max-w-3xl mx-auto p-4 md:p-8">
+          <div className="text-center py-12">
+            <CheckCircle2 className="h-16 w-16 text-emerald-400 mx-auto mb-4" />
+            <h3 className="text-2xl font-bold mb-2">KYC Verification Complete! 🎉</h3>
+            <p className="text-zinc-400 mb-6">Your account is fully verified.</p>
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="px-6 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-black via-zinc-950 to-black text-white">
       <div className="max-w-3xl mx-auto p-4 md:p-8">
         {/* Header */}
         <div className="mb-8 flex items-center gap-4">
-          <button className="p-2 hover:bg-zinc-900 rounded-lg transition">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="p-2 hover:bg-zinc-900 rounded-lg transition"
+          >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
@@ -107,18 +234,26 @@ export default function KYCPage() {
           </div>
         )}
 
-        {kycStatus === 'approved' && (
-          <div className="text-center py-12">
-            <CheckCircle2 className="h-16 w-16 text-emerald-400 mx-auto mb-4" />
-            <h3 className="text-2xl font-bold mb-2">KYC Verification Complete! 🎉</h3>
-            <p className="text-zinc-400 mb-6">Your account is fully verified.</p>
-            <button className="px-6 py-3 bg-emerald-500 text-black rounded-lg font-semibold hover:bg-emerald-600">
-              Back to Dashboard
-            </button>
+        {kycStatus === 'rejected' && (
+          <div className="rounded-xl p-6 mb-8 border bg-red-900/20 border-red-800/50">
+            <div className="flex items-start gap-4">
+              <AlertCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold text-lg text-red-400">❌ KYC Rejected</p>
+                <p className="text-sm text-zinc-300 mt-1">
+                  Your previous submission was rejected. Please resubmit with correct documents.
+                </p>
+                {existingKyc?.rejection_reason && (
+                  <p className="text-sm text-red-300 mt-2 p-3 bg-red-900/20 rounded-lg border border-red-800/30">
+                    <strong>Reason:</strong> {existingKyc.rejection_reason}
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        {(kycStatus === 'not-submitted' || kycStatus === 'pending') && (
+        {(kycStatus === 'not-submitted' || kycStatus === 'rejected') && (
           <div className="space-y-6">
             {/* Personal Information */}
             <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
@@ -253,7 +388,7 @@ export default function KYCPage() {
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={(e) => handleFileSelect('id', e.target.files?.[0] || null)}
+                        onChange={(e) => handleFileSelect('id', e.target.files?.[0])}
                         className="hidden"
                       />
                     </div>
@@ -283,7 +418,7 @@ export default function KYCPage() {
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={(e) => handleFileSelect('address', e.target.files?.[0] || null)}
+                        onChange={(e) => handleFileSelect('address', e.target.files?.[0])}
                         className="hidden"
                       />
                     </div>
@@ -313,7 +448,7 @@ export default function KYCPage() {
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={(e) => handleFileSelect('selfie', e.target.files?.[0] || null)}
+                        onChange={(e) => handleFileSelect('selfie', e.target.files?.[0])}
                         className="hidden"
                       />
                     </div>
