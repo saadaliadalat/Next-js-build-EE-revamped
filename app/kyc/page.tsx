@@ -8,15 +8,42 @@ import {
   User, MapPin, Camera, ArrowLeft
 } from 'lucide-react';
 
+interface UserData {
+  id: string;
+  email: string;
+  full_name?: string;
+  kyc_status?: string;
+}
+
+interface KycData {
+  status: string;
+  rejection_reason?: string;
+  id?: string;
+}
+
+interface FormData {
+  fullName: string;
+  email: string;
+  dateOfBirth: string;
+  nationality: string;
+  address: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  idFile: File | null;
+  addressFile: File | null;
+  selfieFile: File | null;
+}
+
 export default function KYCPage() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<UserData | null>(null);
   const [kycStatus, setKycStatus] = useState('not-submitted');
-  const [existingKyc, setExistingKyc] = useState(null);
+  const [existingKyc, setExistingKyc] = useState<KycData | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     fullName: '',
     email: '',
     dateOfBirth: '',
@@ -47,7 +74,12 @@ export default function KYCPage() {
       .eq('id', authUser.id)
       .single();
 
-    setUser({ ...authUser, ...userData });
+    setUser({ 
+      id: authUser.id,
+      email: authUser.email || '',
+      ...userData 
+    });
+    
     setFormData(prev => ({
       ...prev,
       fullName: userData?.full_name || '',
@@ -71,7 +103,7 @@ export default function KYCPage() {
     setLoading(false);
   }
 
-  function handleFileSelect(type, file) {
+  function handleFileSelect(type: 'id' | 'address' | 'selfie', file: File | null | undefined) {
     if (!file) return;
     
     if (file.size > 5 * 1024 * 1024) {
@@ -89,6 +121,11 @@ export default function KYCPage() {
   }
 
   async function handleSubmit() {
+    if (!user) {
+      alert('User not found');
+      return;
+    }
+
     if (!formData.fullName || !formData.dateOfBirth || !formData.nationality || !formData.address || !formData.city || !formData.zipCode) {
       alert('Please fill all required fields');
       return;
@@ -172,7 +209,8 @@ export default function KYCPage() {
       });
 
     } catch (error) {
-      alert('Error: ' + error.message);
+      const err = error as { message?: string };
+      alert('Error: ' + (err.message || 'Unknown error'));
     } finally {
       setSubmitting(false);
     }
