@@ -122,23 +122,46 @@ export default function CompleteAdminPanel() {
   }
 
   async function checkAdminAuth() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      alert('Please login first');
-      router.push('/login');
-      return;
-    }
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError || !user) {
+        console.error('Auth error:', authError);
+        alert('Please login first');
+        router.push('/login');
+        return false;
+      }
 
-    const { data: userData, error } = await supabase
-      .from('users')
-      .select('is_admin')
-      .eq('id', user.id)
-      .single();
+      console.log('Current user:', user.id);
 
-    if (error || !userData?.is_admin) {
-      alert('Access denied. Admin only.');
-      router.push('/dashboard');
-      return;
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('is_admin, email, full_name')
+        .eq('id', user.id)
+        .single();
+
+      console.log('User data:', userData);
+      console.log('User error:', userError);
+
+      if (userError) {
+        console.error('Error fetching user data:', userError);
+        alert('Error checking admin status: ' + userError.message);
+        return false;
+      }
+
+      if (!userData?.is_admin) {
+        console.warn('User is not admin:', userData);
+        alert('Access denied. Admin privileges required.');
+        router.push('/dashboard');
+        return false;
+      }
+
+      console.log('✅ Admin access granted');
+      return true;
+    } catch (error) {
+      console.error('Unexpected error in checkAdminAuth:', error);
+      alert('An unexpected error occurred');
+      return false;
     }
   }
 

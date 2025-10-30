@@ -6,29 +6,65 @@ import { useRouter } from 'next/navigation';
 import {
   TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
   Clock, CheckCircle, XCircle, Copy, AlertCircle,
-  Upload, FileText, CreditCard, RefreshCw, Eye, Info,
-  Shield, DollarSign, Activity, Send, Download
+  Upload, FileText, CreditCard, RefreshCw, Info,
+  Shield, DollarSign, Activity, Send, Download, Building2
 } from 'lucide-react';
+
+interface User {
+  id: string;
+  email: string;
+  full_name: string | null;
+  is_approved: boolean;
+}
+
+interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_holder_name: string;
+  account_number: string;
+  routing_number: string | null;
+  instructions: string | null;
+}
+
+interface Deposit {
+  id: string;
+  user_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  rejection_reason?: string | null;
+  admin_notes?: string | null;
+}
+
+interface Withdrawal {
+  id: string;
+  user_id: string;
+  amount: number;
+  status: string;
+  created_at: string;
+  rejection_reason?: string | null;
+  admin_notes?: string | null;
+  bank_name?: string;
+  account_holder_name?: string;
+}
 
 export default function ProductionUserDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState<User | null>(null);
   const [balance, setBalance] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
   const [activeTab, setActiveTab] = useState('overview');
-  const [bankAccounts, setBankAccounts] = useState([]);
-  const [deposits, setDeposits] = useState([]);
-  const [withdrawals, setWithdrawals] = useState([]);
-  const [kycStatus, setKycStatus] = useState('not_submitted');
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [kycStatus, setKycStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Deposit Form
   const [depositAmount, setDepositAmount] = useState('');
-  const [proofFile, setProofFile] = useState(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [copiedField, setCopiedField] = useState('');
 
-  // Withdrawal Form
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawBankName, setWithdrawBankName] = useState('');
   const [withdrawAccountNumber, setWithdrawAccountNumber] = useState('');
@@ -51,6 +87,8 @@ export default function ProductionUserDashboard() {
   }, [user]);
 
   function setupRealtimeSubscriptions() {
+    if (!user) return;
+
     const depositsChannel = supabase
       .channel('user-deposits')
       .on('postgres_changes', 
@@ -96,7 +134,7 @@ export default function ProductionUserDashboard() {
       .single();
 
     if (userData) {
-      setUser(userData);
+      setUser(userData as User);
     }
   }
 
@@ -185,7 +223,7 @@ export default function ProductionUserDashboard() {
       .single();
 
     if (data) {
-      setKycStatus(data.status);
+      setKycStatus(data.status as 'not_submitted' | 'pending' | 'approved' | 'rejected');
     } else {
       setKycStatus('not_submitted');
     }
@@ -236,7 +274,7 @@ export default function ProductionUserDashboard() {
       setProofFile(null);
       await fetchAllData();
 
-    } catch (error) {
+    } catch (error: any) {
       alert('❌ Error: ' + error.message);
     } finally {
       setSubmitting(false);
@@ -288,28 +326,28 @@ export default function ProductionUserDashboard() {
       setWithdrawAccountHolder('');
       await fetchAllData();
 
-    } catch (error) {
+    } catch (error: any) {
       alert('❌ Error: ' + error.message);
     } finally {
       setSubmitting(false);
     }
   }
 
-  function copyToClipboard(text, label) {
+  function copyToClipboard(text: string, label: string) {
     navigator.clipboard.writeText(text);
     setCopiedField(label);
     setTimeout(() => setCopiedField(''), 2000);
   }
 
-  function getStatusBadge(status) {
-    const styles = {
+  function getStatusBadge(status: string) {
+    const styles: Record<string, string> = {
       pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
       approved: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
       rejected: 'bg-red-500/10 text-red-400 border-red-500/30',
       completed: 'bg-blue-500/10 text-blue-400 border-blue-500/30'
     };
 
-    const icons = {
+    const icons: Record<string, any> = {
       pending: Clock,
       approved: CheckCircle,
       rejected: XCircle,
@@ -326,7 +364,7 @@ export default function ProductionUserDashboard() {
     );
   }
 
-  function formatDate(dateString) {
+  function formatDate(dateString: string) {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
@@ -888,7 +926,7 @@ export default function ProductionUserDashboard() {
             </div>
 
             <div className="space-y-3">
-              {[...deposits.map(d => ({...d, type: 'deposit'})), ...withdrawals.map(w => ({...w, type: 'withdrawal'}))]
+              {[...deposits.map(d => ({...d, type: 'deposit' as const})), ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))]
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                 .length === 0 ? (
                 <div className="text-center py-16">
@@ -897,7 +935,7 @@ export default function ProductionUserDashboard() {
                   <p className="text-zinc-600 text-sm">Your deposits and withdrawals will appear here</p>
                 </div>
               ) : (
-                [...deposits.map(d => ({...d, type: 'deposit'})), ...withdrawals.map(w => ({...w, type: 'withdrawal'}))]
+                [...deposits.map(d => ({...d, type: 'deposit' as const})), ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))]
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((transaction) => (
                     <div key={transaction.id} className="p-5 bg-zinc-800/30 border border-zinc-800 rounded-xl hover:bg-zinc-800/50 transition">
@@ -947,7 +985,7 @@ export default function ProductionUserDashboard() {
                         </div>
                       )}
 
-                      {transaction.type === 'withdrawal' && transaction.bank_name && (
+                      {transaction.type === 'withdrawal' && 'bank_name' in transaction && transaction.bank_name && (
                         <div className="mt-3 p-3 bg-zinc-800 border border-zinc-700 rounded-lg">
                           <p className="text-xs text-zinc-500 font-bold mb-2">Bank Details:</p>
                           <div className="grid grid-cols-2 gap-2 text-xs">
