@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Loader2, TrendingUp, Mail, Lock } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'react-hot-toast';
 
 export default function LoginPage() {
@@ -13,22 +13,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const emailRef = useRef<HTMLInputElement>(null);
-  const { signIn, profile } = useAuth();
 
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
-
-  // Wait for profile to load after login
-  useEffect(() => {
-    if (profile && !loading) {
-      if (profile.is_admin) {
-        router.push('/admin');
-      } else {
-        router.push('/dashboard');
-      }
-    }
-  }, [profile, loading, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,9 +29,37 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await signIn(email, password);
+      // Sign in
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) throw authError;
+
+      // Fetch user profile immediately after login
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('is_admin')
+        .eq('id', authData.user.id)
+        .single();
+
+      if (userError) {
+        console.error('Error fetching user:', userError);
+        // If profile doesn't exist yet, redirect to dashboard by default
+        toast.success('Welcome back!');
+        router.push('/dashboard');
+        return;
+      }
+
+      // Redirect based on role
       toast.success('Welcome back!');
-      // Routing happens in useEffect above once profile loads
+      if (userData?.is_admin) {
+        router.push('/admin');
+      } else {
+        router.push('/dashboard');
+      }
+
     } catch (err: any) {
       console.error('Login error:', err);
       toast.error(err.message || 'Invalid credentials');
@@ -83,7 +99,8 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 ref={emailRef}
-                className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all"
+                disabled={loading}
+                className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all disabled:opacity-50"
                 required
               />
             </div>
@@ -98,14 +115,15 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all"
+                disabled={loading}
+                className="w-full px-4 py-3.5 bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white/30 transition-all disabled:opacity-50"
                 required
               />
             </div>
 
             <motion.button
-              whileHover={{ scale: 1.01 }}
-              whileTap={{ scale: 0.99 }}
+              whileHover={{ scale: loading ? 1 : 1.01 }}
+              whileTap={{ scale: loading ? 1 : 0.99 }}
               type="submit"
               disabled={loading}
               className="w-full mt-6 px-6 py-3.5 bg-white text-black font-semibold rounded-xl transition-all duration-300 hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"

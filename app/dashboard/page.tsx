@@ -7,7 +7,8 @@ import {
   TrendingUp, Wallet, ArrowUpRight, ArrowDownRight,
   Clock, CheckCircle, XCircle, Copy, AlertCircle,
   Upload, FileText, CreditCard, RefreshCw, Info,
-  Shield, DollarSign, Activity, Send, Download, Building2
+  Shield, DollarSign, Activity, Send, Download, Building2,
+  Eye, EyeOff
 } from 'lucide-react';
 
 interface User {
@@ -15,6 +16,7 @@ interface User {
   email: string;
   full_name: string | null;
   is_approved: boolean;
+  is_admin: boolean;
 }
 
 interface BankAccount {
@@ -23,29 +25,39 @@ interface BankAccount {
   account_holder_name: string;
   account_number: string;
   routing_number: string | null;
+  swift_code: string | null;
   instructions: string | null;
+  is_active: boolean;
 }
 
 interface Deposit {
   id: string;
   user_id: string;
-  amount: number;
-  status: string;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected';
   created_at: string;
+  approved_at?: string;
   rejection_reason?: string | null;
-  admin_notes?: string | null;
 }
 
 interface Withdrawal {
   id: string;
   user_id: string;
-  amount: number;
-  status: string;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected';
   created_at: string;
+  approved_at?: string;
   rejection_reason?: string | null;
-  admin_notes?: string | null;
   bank_name?: string;
+  account_number?: string;
   account_holder_name?: string;
+}
+
+interface KycSubmission {
+  id: string;
+  user_id: string;
+  status: 'pending' | 'approved' | 'rejected';
+  rejection_reason?: string | null;
 }
 
 export default function ProductionUserDashboard() {
@@ -53,6 +65,7 @@ export default function ProductionUserDashboard() {
   const [user, setUser] = useState<User | null>(null);
   const [balance, setBalance] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
+  const [showBalance, setShowBalance] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
@@ -121,17 +134,24 @@ export default function ProductionUserDashboard() {
   }
 
   async function checkUser() {
-    const { data: { user: authUser } } = await supabase.auth.getUser();
-    if (!authUser) {
-      router.push('/auth/login');
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !authUser) {
+      console.error('Auth error:', authError);
+      router.push('/login');
       return;
     }
 
-    const { data: userData } = await supabase
+    const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('*')
+      .select('id, email, full_name, is_approved, is_admin')
       .eq('id', authUser.id)
       .single();
+
+    if (userError) {
+      console.error('User fetch error:', userError);
+      return;
+    }
 
     if (userData) {
       setUser(userData as User);
@@ -149,11 +169,16 @@ export default function ProductionUserDashboard() {
   }
 
   async function fetchBankAccounts() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('bank_accounts')
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error('Error fetching bank accounts:', error);
+      return;
+    }
     
     setBankAccounts(data || []);
   }
@@ -188,12 +213,17 @@ export default function ProductionUserDashboard() {
   async function fetchDeposits() {
     if (!user) return;
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('deposits')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(50);
+    
+    if (error) {
+      console.error('Error fetching deposits:', error);
+      return;
+    }
     
     setDeposits(data || []);
   }
@@ -201,12 +231,17 @@ export default function ProductionUserDashboard() {
   async function fetchWithdrawals() {
     if (!user) return;
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('withdrawals')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(50);
+    
+    if (error) {
+      console.error('Error fetching withdrawals:', error);
+      return;
+    }
     
     setWithdrawals(data || []);
   }
@@ -214,16 +249,21 @@ export default function ProductionUserDashboard() {
   async function fetchKycStatus() {
     if (!user) return;
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('kyc_submissions')
-      .select('status')
+      .select('status, rejection_reason')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
 
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching KYC status:', error);
+      return;
+    }
+
     if (data) {
-      setKycStatus(data.status as 'not_submitted' | 'pending' | 'approved' | 'rejected');
+      setKycStatus(data.status as any);
     } else {
       setKycStatus('not_submitted');
     }
@@ -249,6 +289,16 @@ export default function ProductionUserDashboard() {
     setSubmitting(true);
 
     try {
+      // Validate file
+      if (proofFile.size > 5 * 1024 * 1024) {
+        throw new Error('File size must be less than 5MB');
+      }
+
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+      if (!allowedTypes.includes(proofFile.type)) {
+        throw new Error('Only JPG, PNG, and PDF files are allowed');
+      }
+
       const fileExt = proofFile.name.split('.').pop();
       const fileName = `${user.id}/deposit-${Date.now()}.${fileExt}`;
       
@@ -272,9 +322,15 @@ export default function ProductionUserDashboard() {
       alert('✅ Deposit submitted! Awaiting admin approval.');
       setDepositAmount('');
       setProofFile(null);
+      
+      // Reset file input
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) fileInput.value = '';
+      
       await fetchAllData();
 
     } catch (error: any) {
+      console.error('Deposit error:', error);
       alert('❌ Error: ' + error.message);
     } finally {
       setSubmitting(false);
@@ -327,6 +383,7 @@ export default function ProductionUserDashboard() {
       await fetchAllData();
 
     } catch (error: any) {
+      console.error('Withdrawal error:', error);
       alert('❌ Error: ' + error.message);
     } finally {
       setSubmitting(false);
@@ -343,15 +400,13 @@ export default function ProductionUserDashboard() {
     const styles: Record<string, string> = {
       pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
       approved: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-      rejected: 'bg-red-500/10 text-red-400 border-red-500/30',
-      completed: 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+      rejected: 'bg-red-500/10 text-red-400 border-red-500/30'
     };
 
     const icons: Record<string, any> = {
       pending: Clock,
       approved: CheckCircle,
-      rejected: XCircle,
-      completed: CheckCircle
+      rejected: XCircle
     };
 
     const Icon = icons[status] || Clock;
@@ -366,7 +421,13 @@ export default function ProductionUserDashboard() {
 
   function formatDate(dateString: string) {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric', 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
   }
 
   if (loading) {
@@ -380,8 +441,8 @@ export default function ProductionUserDashboard() {
     );
   }
 
-  const totalDeposited = deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + Number(d.amount), 0);
-  const totalWithdrawn = withdrawals.filter(w => w.status === 'approved').reduce((sum, w) => sum + Number(w.amount), 0);
+  const totalDeposited = deposits.filter(d => d.status === 'approved').reduce((sum, d) => sum + parseFloat(d.amount), 0);
+  const totalWithdrawn = withdrawals.filter(w => w.status === 'approved').reduce((sum, w) => sum + parseFloat(w.amount), 0);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -396,12 +457,22 @@ export default function ProductionUserDashboard() {
               </h1>
               <p className="text-zinc-500">Manage your trading account</p>
             </div>
-            <button
-              onClick={fetchAllData}
-              className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all hover:scale-105"
-            >
-              <RefreshCw className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={fetchAllData}
+                className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all hover:scale-105"
+              >
+                <RefreshCw className="w-5 h-5" />
+              </button>
+              {user?.is_admin && (
+                <button
+                  onClick={() => router.push('/admin')}
+                  className="px-4 py-3 bg-emerald-500 text-black rounded-xl font-bold hover:bg-emerald-600 transition-all hover:scale-105"
+                >
+                  Admin Panel →
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -471,11 +542,25 @@ export default function ProductionUserDashboard() {
         {/* Balance Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-gradient-to-br from-white to-zinc-100 border-2 border-white rounded-2xl p-6 text-black shadow-2xl">
-            <div className="flex items-center gap-2 mb-4">
-              <Wallet className="h-5 w-5 text-black" />
-              <p className="text-zinc-700 text-sm font-bold">Available Balance</p>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-black" />
+                <p className="text-zinc-700 text-sm font-bold">Available Balance</p>
+              </div>
+              <button
+                onClick={() => setShowBalance(!showBalance)}
+                className="p-1.5 hover:bg-zinc-200 rounded-lg transition"
+              >
+                {showBalance ? (
+                  <Eye className="h-4 w-4 text-black" />
+                ) : (
+                  <EyeOff className="h-4 w-4 text-black" />
+                )}
+              </button>
             </div>
-            <h2 className="text-4xl font-black mb-2">${balance.toFixed(2)}</h2>
+            <h2 className="text-4xl font-black mb-2">
+              {showBalance ? `$${balance.toFixed(2)}` : '••••••'}
+            </h2>
             <p className="text-xs text-zinc-600 font-semibold">Ready to trade</p>
           </div>
 
@@ -555,7 +640,7 @@ export default function ProductionUserDashboard() {
                           <ArrowDownRight className="h-5 w-5 text-emerald-400" />
                         </div>
                         <div>
-                          <p className="font-bold text-lg">${Number(deposit.amount).toFixed(2)}</p>
+                          <p className="font-bold text-lg">${parseFloat(deposit.amount).toFixed(2)}</p>
                           <p className="text-xs text-zinc-500">{formatDate(deposit.created_at)}</p>
                         </div>
                       </div>
@@ -585,7 +670,7 @@ export default function ProductionUserDashboard() {
                           <ArrowUpRight className="h-5 w-5 text-purple-400" />
                         </div>
                         <div>
-                          <p className="font-bold text-lg">${Number(withdrawal.amount).toFixed(2)}</p>
+                          <p className="font-bold text-lg">${parseFloat(withdrawal.amount).toFixed(2)}</p>
                           <p className="text-xs text-zinc-500">{formatDate(withdrawal.created_at)}</p>
                         </div>
                       </div>
@@ -665,10 +750,29 @@ export default function ProductionUserDashboard() {
                             <p className="font-mono font-bold">{bank.routing_number}</p>
                           </div>
                           <button
-                            onClick={() => copyToClipboard(bank.routing_number, 'Routing Number')}
+                            onClick={() => copyToClipboard(bank.routing_number!, 'Routing Number')}
                             className="p-2 hover:bg-zinc-700 rounded-lg transition"
                           >
                             {copiedField === 'Routing Number' ? (
+                              <CheckCircle className="h-4 w-4 text-emerald-400" />
+                            ) : (
+                              <Copy className="h-4 w-4 text-zinc-400" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {bank.swift_code && (
+                        <div className="flex items-center justify-between bg-zinc-800/50 rounded-xl p-4 border border-zinc-800">
+                          <div>
+                            <p className="text-xs text-zinc-500 font-bold mb-1">SWIFT CODE</p>
+                            <p className="font-mono font-bold">{bank.swift_code}</p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(bank.swift_code!, 'SWIFT Code')}
+                            className="p-2 hover:bg-zinc-700 rounded-lg transition"
+                          >
+                            {copiedField === 'SWIFT Code' ? (
                               <CheckCircle className="h-4 w-4 text-emerald-400" />
                             ) : (
                               <Copy className="h-4 w-4 text-zinc-400" />
@@ -926,7 +1030,10 @@ export default function ProductionUserDashboard() {
             </div>
 
             <div className="space-y-3">
-              {[...deposits.map(d => ({...d, type: 'deposit' as const})), ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))]
+              {[
+                ...deposits.map(d => ({...d, type: 'deposit' as const})), 
+                ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))
+              ]
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                 .length === 0 ? (
                 <div className="text-center py-16">
@@ -935,7 +1042,10 @@ export default function ProductionUserDashboard() {
                   <p className="text-zinc-600 text-sm">Your deposits and withdrawals will appear here</p>
                 </div>
               ) : (
-                [...deposits.map(d => ({...d, type: 'deposit' as const})), ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))]
+                [
+                  ...deposits.map(d => ({...d, type: 'deposit' as const})), 
+                  ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))
+                ]
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((transaction) => (
                     <div key={transaction.id} className="p-5 bg-zinc-800/30 border border-zinc-800 rounded-xl hover:bg-zinc-800/50 transition">
@@ -962,7 +1072,7 @@ export default function ProductionUserDashboard() {
                             <p className={`text-2xl font-black ${
                               transaction.type === 'deposit' ? 'text-emerald-400' : 'text-purple-400'
                             }`}>
-                              {transaction.type === 'deposit' ? '+' : '-'}${Number(transaction.amount).toFixed(2)}
+                              {transaction.type === 'deposit' ? '+' : '-'}${parseFloat(transaction.amount).toFixed(2)}
                             </p>
                           </div>
                         </div>
@@ -975,13 +1085,6 @@ export default function ProductionUserDashboard() {
                         <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                           <p className="text-xs text-red-400 font-bold mb-1">Rejection Reason:</p>
                           <p className="text-sm text-red-300">{transaction.rejection_reason}</p>
-                        </div>
-                      )}
-
-                      {transaction.admin_notes && (
-                        <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg">
-                          <p className="text-xs text-blue-400 font-bold mb-1">Admin Note:</p>
-                          <p className="text-sm text-blue-300">{transaction.admin_notes}</p>
                         </div>
                       )}
 
