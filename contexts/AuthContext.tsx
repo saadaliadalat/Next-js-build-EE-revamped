@@ -8,12 +8,11 @@ import { useRouter } from 'next/navigation';
 interface UserProfile {
   id: string;
   email: string;
-  full_name: string;
-  phone: string;
+  full_name: string | null;
+  phone: string | null;
   is_approved: boolean;
   is_admin: boolean;
   created_at: string;
-  updated_at: string;
 }
 
 interface AuthContextType {
@@ -23,6 +22,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string, phone: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,18 +34,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
 
   useEffect(() => {
-    let isSubscribed = true;
-
     // Check current session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!isSubscribed) return;
-
+      setUser(session?.user ?? null);
       if (session?.user) {
-        setUser(session.user);
         fetchProfile(session.user.id);
       } else {
-        setUser(null);
-        setProfile(null);
         setLoading(false);
       }
     });
@@ -54,64 +48,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!isSubscribed) return;
-
+      setUser(session?.user ?? null);
       if (session?.user) {
-        setUser(session.user);
         fetchProfile(session.user.id);
       } else {
-        setUser(null);
         setProfile(null);
         setLoading(false);
       }
     });
 
     return () => {
-      isSubscribed = false;
       subscription.unsubscribe();
     };
   }, []);
 
-  const fetchProfile = async (userId: string, retries = 3) => {
+  const fetchProfile = async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('*')
+        .select('id, email, full_name, phone, is_approved, is_admin, created_at')
         .eq('id', userId)
-        .maybeSingle();
+        .single();
 
-      // Debug: Let's see what's actually in this error
       if (error) {
-        console.log('🔍 DEBUG - Error object:', JSON.stringify(error, null, 2));
-        console.log('🔍 DEBUG - Error keys:', Object.keys(error));
-        console.log('🔍 DEBUG - Error code:', error.code);
-        console.log('🔍 DEBUG - Error message:', error.message);
-        console.log('🔍 DEBUG - Error details:', error.details);
-      }
-
-      if (data) {
-        console.log('✅ Profile fetched successfully:', data);
-        setProfile(data);
-      } else if (retries > 0) {
-        console.log(`⏳ Profile not found, retrying... (${retries} attempts left)`);
-        setTimeout(() => fetchProfile(userId, retries - 1), 500);
-        return;
-      } else {
-        console.log('❌ Profile not found after all retries');
+        console.error('Profile fetch error:', error.message, error.hint);
         setProfile(null);
+      } else if (data) {
+        setProfile(data);
       }
     } catch (error) {
-      console.error('💥 Unexpected error fetching profile:', error);
+      console.error('Unexpected error:', error);
       setProfile(null);
     } finally {
-      if (retries === 0 || retries === 3) {
-        setLoading(false);
-      }
+      setLoading(false);
+    }
+  };
+
+  const refreshProfile = async () => {
+    if (user) {
+      await fetchProfile(user.id);
     }
   };
 
   const signUp = async (email: string, password: string, fullName: string, phone: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -123,8 +103,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) throw error;
-    
-    // Note: User profile and wallet are automatically created by database trigger
+
+    // Create user profile immediately (don't rely on trigger)
+    if (data.user) {
+      const { error: profileError } = await supabase
+        .from('users')
+        .upsert({
+          id: data.user.id,
+          email: data.user.email!,
+          full_name: fullName,
+          phone: phone,
+          is_approved: false,
+          is_admin: false,
+        });
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+      }
+
+      // Create balance
+      const { error: balanceError } = await supabase
+        .from('balances')
+        .upsert({
+          user_id: data.user.id,
+          available_balance: 0,
+          pending_balance: 0,
+        });
+
+      if (balanceError) {
+        console.error('Balance creation error:', balanceError);
+      }
+    }
   };
 
   const signIn = async (email: string, password: string) => {
@@ -152,6 +161,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signUp,
         signIn,
         signOut,
+        refreshProfile,
       }}
     >
       {children}
