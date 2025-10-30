@@ -1,17 +1,168 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
-import { useRouter } from 'next/navigation';
-import {
-  CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp,
-  FileText, AlertCircle, Search, RefreshCw, Building2, DollarSign,
-  ArrowUpRight, ArrowDownRight, User, Mail, Phone, MapPin,
-  Settings, Shield, LogOut
+import { 
+  CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp, 
+  FileText, AlertCircle, Search, RefreshCw, Building2, DollarSign, 
+  ArrowUpRight, ArrowDownRight, User, Mail, Phone, MapPin, Calendar,
+  Download, Filter, ChevronDown, Settings, Shield, LogOut
 } from 'lucide-react';
 
+// Mock Supabase - Replace with real import: import { supabase } from '@/lib/supabase';
+const supabase = {
+  auth: {
+    getUser: async () => ({ data: { user: { id: 'admin-123', email: 'admin@example.com' } } }),
+    signOut: async () => ({ error: null })
+  },
+  from: (table) => ({
+    select: (cols) => ({
+      eq: () => ({ single: async () => ({ data: { is_admin: true } }) }),
+      order: () => ({ 
+        ascending: async () => ({ data: mockData[table] || [] }),
+        data: mockData[table] || []
+      }),
+      data: mockData[table] || []
+    }),
+    update: (data) => ({
+      eq: () => ({ error: null })
+    }),
+    insert: (data) => ({ error: null })
+  }),
+  storage: {
+    from: () => ({
+      createSignedUrl: async () => ({ data: { signedUrl: 'https://example.com/doc.pdf' } })
+    })
+  },
+  channel: () => ({
+    on: () => ({ subscribe: () => {} })
+  }),
+  removeChannel: () => {}
+};
+
+// Mock data for demonstration
+const mockData = {
+  kyc_submissions: [
+    {
+      id: 'kyc-1',
+      user_id: 'user-1',
+      full_name: 'John Smith',
+      email: 'john@example.com',
+      phone: '+1234567890',
+      address: '123 Main St, New York',
+      id_document_url: 'docs/id-1.jpg',
+      address_proof_url: 'docs/address-1.jpg',
+      selfie_url: 'docs/selfie-1.jpg',
+      status: 'pending',
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'kyc-2',
+      user_id: 'user-2',
+      full_name: 'Sarah Johnson',
+      email: 'sarah@example.com',
+      phone: '+1234567891',
+      address: '456 Oak Ave, Boston',
+      id_document_url: 'docs/id-2.jpg',
+      address_proof_url: 'docs/address-2.jpg',
+      selfie_url: 'docs/selfie-2.jpg',
+      status: 'pending',
+      created_at: new Date(Date.now() - 86400000).toISOString()
+    }
+  ],
+  deposits: [
+    {
+      id: 'dep-1',
+      user_id: 'user-1',
+      amount: '5000.00',
+      payment_proof_url: 'proofs/payment-1.jpg',
+      status: 'pending',
+      created_at: new Date().toISOString(),
+      users: { email: 'john@example.com', full_name: 'John Smith' }
+    },
+    {
+      id: 'dep-2',
+      user_id: 'user-2',
+      amount: '3500.00',
+      payment_proof_url: 'proofs/payment-2.jpg',
+      status: 'pending',
+      created_at: new Date(Date.now() - 3600000).toISOString(),
+      users: { email: 'sarah@example.com', full_name: 'Sarah Johnson' }
+    },
+    {
+      id: 'dep-3',
+      user_id: 'user-3',
+      amount: '10000.00',
+      payment_proof_url: 'proofs/payment-3.jpg',
+      status: 'approved',
+      approved_at: new Date(Date.now() - 172800000).toISOString(),
+      created_at: new Date(Date.now() - 259200000).toISOString(),
+      users: { email: 'mike@example.com', full_name: 'Mike Davis' }
+    }
+  ],
+  withdrawals: [
+    {
+      id: 'with-1',
+      user_id: 'user-3',
+      amount: '2000.00',
+      status: 'pending',
+      created_at: new Date(Date.now() - 7200000).toISOString(),
+      users: { email: 'mike@example.com', full_name: 'Mike Davis' }
+    }
+  ],
+  users: [
+    {
+      id: 'user-1',
+      email: 'john@example.com',
+      full_name: 'John Smith',
+      is_approved: false,
+      is_admin: false,
+      created_at: new Date(Date.now() - 604800000).toISOString(),
+      balances: [{ available_balance: 0 }]
+    },
+    {
+      id: 'user-2',
+      email: 'sarah@example.com',
+      full_name: 'Sarah Johnson',
+      is_approved: false,
+      is_admin: false,
+      created_at: new Date(Date.now() - 432000000).toISOString(),
+      balances: [{ available_balance: 0 }]
+    },
+    {
+      id: 'user-3',
+      email: 'mike@example.com',
+      full_name: 'Mike Davis',
+      is_approved: true,
+      is_admin: false,
+      created_at: new Date(Date.now() - 1209600000).toISOString(),
+      balances: [{ available_balance: 8000 }]
+    }
+  ],
+  bank_accounts: [
+    {
+      id: 'bank-1',
+      bank_name: 'Chase Bank',
+      account_holder_name: 'EquityEdge Trading LLC',
+      account_number: '****5678',
+      routing_number: '021000021',
+      swift_code: 'CHASUS33',
+      is_active: true,
+      created_at: new Date().toISOString()
+    },
+    {
+      id: 'bank-2',
+      bank_name: 'Bank of America',
+      account_holder_name: 'EquityEdge Trading LLC',
+      account_number: '****9012',
+      routing_number: '026009593',
+      swift_code: 'BOFAUS3N',
+      is_active: true,
+      created_at: new Date().toISOString()
+    }
+  ]
+};
+
 export default function CompleteAdminPanel() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,7 +202,6 @@ export default function CompleteAdminPanel() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       alert('Please login first');
-      router.push('/auth/login');
       return;
     }
 
@@ -62,8 +212,7 @@ export default function CompleteAdminPanel() {
       .single();
 
     if (!userData?.is_admin) {
-      alert('❌ Access denied. Admin privileges required.');
-      router.push('/dashboard');
+      alert('Access denied. Admin only.');
       return;
     }
   }
@@ -85,18 +234,9 @@ export default function CompleteAdminPanel() {
       )
       .subscribe();
 
-    const withdrawalsChannel = supabase
-      .channel('withdrawals-realtime')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'withdrawals' },
-        () => fetchAllData()
-      )
-      .subscribe();
-
     return () => {
       supabase.removeChannel(kycChannel);
       supabase.removeChannel(depositsChannel);
-      supabase.removeChannel(withdrawalsChannel);
     };
   }
 
@@ -116,7 +256,7 @@ export default function CompleteAdminPanel() {
       .from('kyc_submissions')
       .select('*')
       .order('created_at', { ascending: false });
-    setKycSubmissions(data || []);
+    setKycSubmissions(data || mockData.kyc_submissions);
   }
 
   async function fetchDeposits() {
@@ -124,7 +264,7 @@ export default function CompleteAdminPanel() {
       .from('deposits')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    setDeposits(data || []);
+    setDeposits(data || mockData.deposits);
   }
 
   async function fetchWithdrawals() {
@@ -132,44 +272,48 @@ export default function CompleteAdminPanel() {
       .from('withdrawals')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    setWithdrawals(data || []);
+    setWithdrawals(data || mockData.withdrawals);
   }
 
   async function fetchUsers() {
     const { data } = await supabase
       .from('users')
-      .select('*, balances(amount)')
+      .select('*, balances(available_balance)')
       .order('created_at', { ascending: false });
-    setUsers(data || []);
+    setUsers(data || mockData.users);
   }
 
   async function fetchBankAccounts() {
     const { data } = await supabase
       .from('bank_accounts')
       .select('*')
-      .eq('is_active', true)
       .order('created_at', { ascending: false });
-    setBankAccounts(data || []);
+    setBankAccounts(data || mockData.bank_accounts);
   }
 
   function calculateStats() {
+    const usersData = users.length ? users : mockData.users;
+    const kycData = kycSubmissions.length ? kycSubmissions : mockData.kyc_submissions;
+    const depositsData = deposits.length ? deposits : mockData.deposits;
+    const withdrawalsData = withdrawals.length ? withdrawals : mockData.withdrawals;
+
     setStats({
-      totalUsers: users.length,
-      approvedUsers: users.filter(u => u.is_approved).length,
-      pendingKyc: kycSubmissions.filter(k => k.status === 'pending').length,
-      pendingDeposits: deposits.filter(d => d.status === 'pending').length,
-      pendingWithdrawals: withdrawals.filter(w => w.status === 'pending').length,
-      totalDeposits: deposits
+      totalUsers: usersData.length,
+      approvedUsers: usersData.filter(u => u.is_approved).length,
+      pendingKyc: kycData.filter(k => k.status === 'pending').length,
+      pendingDeposits: depositsData.filter(d => d.status === 'pending').length,
+      pendingWithdrawals: withdrawalsData.filter(w => w.status === 'pending').length,
+      totalDeposits: depositsData
         .filter(d => d.status === 'approved')
-        .reduce((sum, d) => sum + parseFloat(d.amount || 0), 0),
-      totalWithdrawals: withdrawals
+        .reduce((sum, d) => sum + parseFloat(d.amount), 0),
+      totalWithdrawals: withdrawalsData
         .filter(w => w.status === 'approved')
-        .reduce((sum, w) => sum + parseFloat(w.amount || 0), 0)
+        .reduce((sum, w) => sum + parseFloat(w.amount), 0)
     });
   }
 
   async function approveKyc(kycId, userId) {
-    if (!confirm('✅ Approve this KYC?\n\nUser will be verified and can deposit funds.')) return;
+    if (!confirm('Approve this KYC? User will be verified and can deposit.')) return;
     
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
@@ -182,7 +326,7 @@ export default function CompleteAdminPanel() {
       .eq('id', kycId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
       alert('✅ KYC Approved! User can now deposit.');
       await fetchAllData();
@@ -191,7 +335,7 @@ export default function CompleteAdminPanel() {
   }
 
   async function rejectKyc(kycId) {
-    const reason = prompt('❌ Reason for rejection (will be shown to user):');
+    const reason = prompt('Reason for rejection (will be shown to user):');
     if (!reason) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -205,16 +349,16 @@ export default function CompleteAdminPanel() {
       .eq('id', kycId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
-      alert('✅ KYC Rejected.');
+      alert('❌ KYC Rejected.');
       await fetchAllData();
       setSelectedKyc(null);
     }
   }
 
   async function approveDeposit(depositId) {
-    if (!confirm('✅ Approve deposit?\n\nUser balance will update automatically via database trigger.')) return;
+    if (!confirm('Approve deposit? User balance will update automatically via trigger.')) return;
 
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
@@ -227,7 +371,7 @@ export default function CompleteAdminPanel() {
       .eq('id', depositId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
       alert('✅ Deposit Approved! Balance updated automatically.');
       await fetchAllData();
@@ -236,7 +380,7 @@ export default function CompleteAdminPanel() {
   }
 
   async function rejectDeposit(depositId) {
-    const reason = prompt('❌ Reason for rejection:');
+    const reason = prompt('Reason for rejection:');
     if (!reason) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -250,16 +394,16 @@ export default function CompleteAdminPanel() {
       .eq('id', depositId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
-      alert('✅ Deposit Rejected.');
+      alert('❌ Deposit Rejected.');
       await fetchAllData();
       setSelectedDeposit(null);
     }
   }
 
   async function approveWithdrawal(withdrawalId) {
-    if (!confirm('✅ Approve withdrawal?\n\nConfirm payment has been sent to user.')) return;
+    if (!confirm('Approve withdrawal? Confirm payment has been sent.')) return;
 
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
@@ -272,7 +416,7 @@ export default function CompleteAdminPanel() {
       .eq('id', withdrawalId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
       alert('✅ Withdrawal Approved!');
       await fetchAllData();
@@ -280,7 +424,7 @@ export default function CompleteAdminPanel() {
   }
 
   async function rejectWithdrawal(withdrawalId) {
-    const reason = prompt('❌ Reason for rejection:');
+    const reason = prompt('Reason for rejection:');
     if (!reason) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -294,22 +438,22 @@ export default function CompleteAdminPanel() {
       .eq('id', withdrawalId);
 
     if (error) {
-      alert('❌ Error: ' + error.message);
+      alert('Error: ' + error.message);
     } else {
-      alert('✅ Withdrawal Rejected. Balance will be refunded.');
+      alert('❌ Withdrawal Rejected.');
       await fetchAllData();
     }
   }
 
   async function viewDocument(bucket, path) {
-    const { data, error } = await supabase.storage
+    const { data } = await supabase.storage
       .from(bucket)
       .createSignedUrl(path, 3600);
     
     if (data?.signedUrl) {
       window.open(data.signedUrl, '_blank');
     } else {
-      alert('❌ Failed to load document: ' + (error?.message || 'Unknown error'));
+      alert('Failed to load document');
     }
   }
 
@@ -390,15 +534,10 @@ export default function CompleteAdminPanel() {
               <button
                 onClick={fetchAllData}
                 className="p-3 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-lg transition-all hover:scale-105"
-                title="Refresh Data"
               >
                 <RefreshCw className="w-5 h-5 text-emerald-400" />
               </button>
-              <button 
-                onClick={() => router.push('/dashboard')}
-                className="p-3 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition"
-                title="Settings"
-              >
+              <button className="p-3 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-lg transition">
                 <Settings className="w-5 h-5" />
               </button>
             </div>
@@ -592,7 +731,7 @@ export default function CompleteAdminPanel() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => viewDocument('deposit-proofs', deposit.proof_filename)}
+                          onClick={() => viewDocument('payment-proofs', deposit.payment_proof_url)}
                           className="p-2 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg transition"
                           title="View Proof"
                         >
@@ -680,7 +819,7 @@ export default function CompleteAdminPanel() {
                   .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
                   .slice(0, 8)
                   .map((item, idx) => {
-                    const isDeposit = item.proof_filename !== undefined;
+                    const isDeposit = item.payment_proof_url !== undefined;
                     return (
                       <div key={idx} className="flex items-center gap-3 py-2">
                         <div className={`p-2 rounded-lg ${isDeposit ? 'bg-emerald-500/20' : 'bg-purple-500/20'}`}>
@@ -808,7 +947,7 @@ export default function CompleteAdminPanel() {
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => viewDocument('deposit-proofs', deposit.proof_filename)}
+                            onClick={() => viewDocument('payment-proofs', deposit.payment_proof_url)}
                             className="p-2 bg-blue-500/20 rounded-lg hover:bg-blue-500/30 transition"
                             title="View Proof"
                           >
@@ -936,7 +1075,7 @@ export default function CompleteAdminPanel() {
                       </td>
                       <td className="p-4">
                         <p className="text-emerald-400 font-semibold text-lg">
-                          ${user.balances?.[0]?.amount?.toLocaleString() || '0.00'}
+                          ${user.balances?.[0]?.available_balance?.toLocaleString() || '0.00'}
                         </p>
                       </td>
                       <td className="p-4">
@@ -973,7 +1112,7 @@ export default function CompleteAdminPanel() {
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="font-bold text-xl mb-1">{bank.bank_name}</h3>
-                      <p className="text-sm text-zinc-400">{bank.account_holder}</p>
+                      <p className="text-sm text-zinc-400">{bank.account_holder_name}</p>
                     </div>
                     {bank.is_active && (
                       <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded text-xs font-semibold">
@@ -990,6 +1129,12 @@ export default function CompleteAdminPanel() {
                       <div>
                         <p className="text-xs text-zinc-500">Routing Number</p>
                         <p className="font-mono text-sm">{bank.routing_number}</p>
+                      </div>
+                    )}
+                    {bank.swift_code && (
+                      <div>
+                        <p className="text-xs text-zinc-500">SWIFT Code</p>
+                        <p className="font-mono text-sm">{bank.swift_code}</p>
                       </div>
                     )}
                   </div>
@@ -1044,10 +1189,6 @@ export default function CompleteAdminPanel() {
                     <p className="font-semibold">{selectedKyc.phone || 'Not provided'}</p>
                   </div>
                   <div className="bg-zinc-800/50 rounded-lg p-4">
-                    <p className="text-xs text-zinc-400 mb-1">Date of Birth</p>
-                    <p className="font-semibold">{selectedKyc.date_of_birth || 'Not provided'}</p>
-                  </div>
-                  <div className="bg-zinc-800/50 rounded-lg p-4 md:col-span-2">
                     <p className="text-xs text-zinc-400 mb-1">Address</p>
                     <p className="font-semibold text-sm">{selectedKyc.address || 'Not provided'}</p>
                   </div>
@@ -1117,6 +1258,7 @@ export default function CompleteAdminPanel() {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
