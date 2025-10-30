@@ -3,178 +3,96 @@
 import { useState, useEffect } from 'react';
 import { 
   CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp, 
-  FileText, AlertCircle, Search, RefreshCw, Building2, DollarSign, 
-  ArrowUpRight, ArrowDownRight, User, Mail, Phone, MapPin, Calendar,
-  Download, Filter, ChevronDown, Settings, Shield, LogOut
+  FileText, Search, RefreshCw, Building2, 
+  ArrowUpRight, ArrowDownRight, User, Settings, Shield
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
-// Mock Supabase - Replace with real import: import { supabase } from '@/lib/supabase';
-const supabase = {
-  auth: {
-    getUser: async () => ({ data: { user: { id: 'admin-123', email: 'admin@example.com' } } }),
-    signOut: async () => ({ error: null })
-  },
-  from: (table) => ({
-    select: (cols) => ({
-      eq: () => ({ single: async () => ({ data: { is_admin: true } }) }),
-      order: () => ({ 
-        ascending: async () => ({ data: mockData[table] || [] }),
-        data: mockData[table] || []
-      }),
-      data: mockData[table] || []
-    }),
-    update: (data) => ({
-      eq: () => ({ error: null })
-    }),
-    insert: (data) => ({ error: null })
-  }),
-  storage: {
-    from: () => ({
-      createSignedUrl: async () => ({ data: { signedUrl: 'https://example.com/doc.pdf' } })
-    })
-  },
-  channel: () => ({
-    on: () => ({ subscribe: () => {} })
-  }),
-  removeChannel: () => {}
-};
+// TypeScript interfaces
+interface KycSubmission {
+  id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  id_document_url: string;
+  address_proof_url: string;
+  selfie_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  rejection_reason?: string;
+  approved_at?: string;
+  approved_by?: string;
+}
 
-// Mock data for demonstration
-const mockData = {
-  kyc_submissions: [
-    {
-      id: 'kyc-1',
-      user_id: 'user-1',
-      full_name: 'John Smith',
-      email: 'john@example.com',
-      phone: '+1234567890',
-      address: '123 Main St, New York',
-      id_document_url: 'docs/id-1.jpg',
-      address_proof_url: 'docs/address-1.jpg',
-      selfie_url: 'docs/selfie-1.jpg',
-      status: 'pending',
-      created_at: new Date().toISOString()
-    },
-    {
-      id: 'kyc-2',
-      user_id: 'user-2',
-      full_name: 'Sarah Johnson',
-      email: 'sarah@example.com',
-      phone: '+1234567891',
-      address: '456 Oak Ave, Boston',
-      id_document_url: 'docs/id-2.jpg',
-      address_proof_url: 'docs/address-2.jpg',
-      selfie_url: 'docs/selfie-2.jpg',
-      status: 'pending',
-      created_at: new Date(Date.now() - 86400000).toISOString()
-    }
-  ],
-  deposits: [
-    {
-      id: 'dep-1',
-      user_id: 'user-1',
-      amount: '5000.00',
-      payment_proof_url: 'proofs/payment-1.jpg',
-      status: 'pending',
-      created_at: new Date().toISOString(),
-      users: { email: 'john@example.com', full_name: 'John Smith' }
-    },
-    {
-      id: 'dep-2',
-      user_id: 'user-2',
-      amount: '3500.00',
-      payment_proof_url: 'proofs/payment-2.jpg',
-      status: 'pending',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      users: { email: 'sarah@example.com', full_name: 'Sarah Johnson' }
-    },
-    {
-      id: 'dep-3',
-      user_id: 'user-3',
-      amount: '10000.00',
-      payment_proof_url: 'proofs/payment-3.jpg',
-      status: 'approved',
-      approved_at: new Date(Date.now() - 172800000).toISOString(),
-      created_at: new Date(Date.now() - 259200000).toISOString(),
-      users: { email: 'mike@example.com', full_name: 'Mike Davis' }
-    }
-  ],
-  withdrawals: [
-    {
-      id: 'with-1',
-      user_id: 'user-3',
-      amount: '2000.00',
-      status: 'pending',
-      created_at: new Date(Date.now() - 7200000).toISOString(),
-      users: { email: 'mike@example.com', full_name: 'Mike Davis' }
-    }
-  ],
-  users: [
-    {
-      id: 'user-1',
-      email: 'john@example.com',
-      full_name: 'John Smith',
-      is_approved: false,
-      is_admin: false,
-      created_at: new Date(Date.now() - 604800000).toISOString(),
-      balances: [{ available_balance: 0 }]
-    },
-    {
-      id: 'user-2',
-      email: 'sarah@example.com',
-      full_name: 'Sarah Johnson',
-      is_approved: false,
-      is_admin: false,
-      created_at: new Date(Date.now() - 432000000).toISOString(),
-      balances: [{ available_balance: 0 }]
-    },
-    {
-      id: 'user-3',
-      email: 'mike@example.com',
-      full_name: 'Mike Davis',
-      is_approved: true,
-      is_admin: false,
-      created_at: new Date(Date.now() - 1209600000).toISOString(),
-      balances: [{ available_balance: 8000 }]
-    }
-  ],
-  bank_accounts: [
-    {
-      id: 'bank-1',
-      bank_name: 'Chase Bank',
-      account_holder_name: 'EquityEdge Trading LLC',
-      account_number: '****5678',
-      routing_number: '021000021',
-      swift_code: 'CHASUS33',
-      is_active: true,
-      created_at: new Date().toISOString()
-    },
-    {
-      id: 'bank-2',
-      bank_name: 'Bank of America',
-      account_holder_name: 'EquityEdge Trading LLC',
-      account_number: '****9012',
-      routing_number: '026009593',
-      swift_code: 'BOFAUS3N',
-      is_active: true,
-      created_at: new Date().toISOString()
-    }
-  ]
-};
+interface Deposit {
+  id: string;
+  user_id: string;
+  amount: string;
+  payment_proof_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  approved_by?: string;
+  users?: {
+    email: string;
+    full_name: string;
+  };
+}
+
+interface Withdrawal {
+  id: string;
+  user_id: string;
+  amount: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  approved_at?: string;
+  rejection_reason?: string;
+  approved_by?: string;
+  users?: {
+    email: string;
+    full_name: string;
+  };
+}
+
+interface User {
+  id: string;
+  email: string;
+  full_name?: string;
+  is_approved: boolean;
+  is_admin: boolean;
+  created_at: string;
+  balances?: Array<{
+    available_balance: number;
+  }>;
+}
+
+interface BankAccount {
+  id: string;
+  bank_name: string;
+  account_holder_name: string;
+  account_number: string;
+  routing_number?: string;
+  swift_code?: string;
+  is_active: boolean;
+  created_at: string;
+}
 
 export default function CompleteAdminPanel() {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   
-  const [kycSubmissions, setKycSubmissions] = useState([]);
-  const [deposits, setDeposits] = useState([]);
-  const [withdrawals, setWithdrawals] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [bankAccounts, setBankAccounts] = useState([]);
+  const [kycSubmissions, setKycSubmissions] = useState<KycSubmission[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -186,12 +104,15 @@ export default function CompleteAdminPanel() {
     totalWithdrawals: 0
   });
 
-  const [selectedKyc, setSelectedKyc] = useState(null);
-  const [selectedDeposit, setSelectedDeposit] = useState(null);
+  const [selectedKyc, setSelectedKyc] = useState<KycSubmission | null>(null);
 
   useEffect(() => {
     initializeAdmin();
   }, []);
+
+  useEffect(() => {
+    calculateStats();
+  }, [users, kycSubmissions, deposits, withdrawals]);
 
   async function initializeAdmin() {
     await checkAdminAuth();
@@ -204,17 +125,19 @@ export default function CompleteAdminPanel() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       alert('Please login first');
+      router.push('/login');
       return;
     }
 
-    const { data: userData } = await supabase
+    const { data: userData, error } = await supabase
       .from('users')
       .select('is_admin')
       .eq('id', user.id)
       .single();
 
-    if (!userData?.is_admin) {
+    if (error || !userData?.is_admin) {
       alert('Access denied. Admin only.');
+      router.push('/dashboard');
       return;
     }
   }
@@ -236,9 +159,18 @@ export default function CompleteAdminPanel() {
       )
       .subscribe();
 
+    const withdrawalsChannel = supabase
+      .channel('withdrawals-realtime')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'withdrawals' },
+        () => fetchAllData()
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(kycChannel);
       supabase.removeChannel(depositsChannel);
+      supabase.removeChannel(withdrawalsChannel);
     };
   }
 
@@ -250,75 +182,96 @@ export default function CompleteAdminPanel() {
       fetchUsers(),
       fetchBankAccounts()
     ]);
-    calculateStats();
   }
 
   async function fetchKycSubmissions() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('kyc_submissions')
       .select('*')
       .order('created_at', { ascending: false });
-    setKycSubmissions(data || mockData.kyc_submissions);
+    
+    if (error) {
+      console.error('Error fetching KYC:', error);
+      return;
+    }
+    setKycSubmissions(data || []);
   }
 
   async function fetchDeposits() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('deposits')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    setDeposits(data || mockData.deposits);
+    
+    if (error) {
+      console.error('Error fetching deposits:', error);
+      return;
+    }
+    setDeposits(data || []);
   }
 
   async function fetchWithdrawals() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('withdrawals')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    setWithdrawals(data || mockData.withdrawals);
+    
+    if (error) {
+      console.error('Error fetching withdrawals:', error);
+      return;
+    }
+    setWithdrawals(data || []);
   }
 
   async function fetchUsers() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('users')
       .select('*, balances(available_balance)')
       .order('created_at', { ascending: false });
-    setUsers(data || mockData.users);
+    
+    if (error) {
+      console.error('Error fetching users:', error);
+      return;
+    }
+    setUsers(data || []);
   }
 
   async function fetchBankAccounts() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('bank_accounts')
       .select('*')
       .order('created_at', { ascending: false });
-    setBankAccounts(data || mockData.bank_accounts);
+    
+    if (error) {
+      console.error('Error fetching bank accounts:', error);
+      return;
+    }
+    setBankAccounts(data || []);
   }
 
   function calculateStats() {
-    const usersData = users.length ? users : mockData.users;
-    const kycData = kycSubmissions.length ? kycSubmissions : mockData.kyc_submissions;
-    const depositsData = deposits.length ? deposits : mockData.deposits;
-    const withdrawalsData = withdrawals.length ? withdrawals : mockData.withdrawals;
-
     setStats({
-      totalUsers: usersData.length,
-      approvedUsers: usersData.filter(u => u.is_approved).length,
-      pendingKyc: kycData.filter(k => k.status === 'pending').length,
-      pendingDeposits: depositsData.filter(d => d.status === 'pending').length,
-      pendingWithdrawals: withdrawalsData.filter(w => w.status === 'pending').length,
-      totalDeposits: depositsData
+      totalUsers: users.length,
+      approvedUsers: users.filter(u => u.is_approved).length,
+      pendingKyc: kycSubmissions.filter(k => k.status === 'pending').length,
+      pendingDeposits: deposits.filter(d => d.status === 'pending').length,
+      pendingWithdrawals: withdrawals.filter(w => w.status === 'pending').length,
+      totalDeposits: deposits
         .filter(d => d.status === 'approved')
         .reduce((sum, d) => sum + parseFloat(d.amount), 0),
-      totalWithdrawals: withdrawalsData
+      totalWithdrawals: withdrawals
         .filter(w => w.status === 'approved')
         .reduce((sum, w) => sum + parseFloat(w.amount), 0)
     });
   }
 
-  async function approveKyc(kycId, userId) {
+  async function approveKyc(kycId: string, userId: string) {
     if (!confirm('Approve this KYC? User will be verified and can deposit.')) return;
     
     const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
+    
+    // Update KYC status
+    const { error: kycError } = await supabase
       .from('kyc_submissions')
       .update({
         status: 'approved',
@@ -327,8 +280,19 @@ export default function CompleteAdminPanel() {
       })
       .eq('id', kycId);
 
-    if (error) {
-      alert('Error: ' + error.message);
+    if (kycError) {
+      alert('Error: ' + kycError.message);
+      return;
+    }
+
+    // Update user's is_approved status
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ is_approved: true })
+      .eq('id', userId);
+
+    if (userError) {
+      alert('Error updating user: ' + userError.message);
     } else {
       alert('✅ KYC Approved! User can now deposit.');
       await fetchAllData();
@@ -336,7 +300,7 @@ export default function CompleteAdminPanel() {
     }
   }
 
-  async function rejectKyc(kycId) {
+  async function rejectKyc(kycId: string) {
     const reason = prompt('Reason for rejection (will be shown to user):');
     if (!reason) return;
 
@@ -359,7 +323,7 @@ export default function CompleteAdminPanel() {
     }
   }
 
-  async function approveDeposit(depositId) {
+  async function approveDeposit(depositId: string) {
     if (!confirm('Approve deposit? User balance will update automatically via trigger.')) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -377,11 +341,10 @@ export default function CompleteAdminPanel() {
     } else {
       alert('✅ Deposit Approved! Balance updated automatically.');
       await fetchAllData();
-      setSelectedDeposit(null);
     }
   }
 
-  async function rejectDeposit(depositId) {
+  async function rejectDeposit(depositId: string) {
     const reason = prompt('Reason for rejection:');
     if (!reason) return;
 
@@ -400,11 +363,10 @@ export default function CompleteAdminPanel() {
     } else {
       alert('❌ Deposit Rejected.');
       await fetchAllData();
-      setSelectedDeposit(null);
     }
   }
 
-  async function approveWithdrawal(withdrawalId) {
+  async function approveWithdrawal(withdrawalId: string) {
     if (!confirm('Approve withdrawal? Confirm payment has been sent.')) return;
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -425,7 +387,7 @@ export default function CompleteAdminPanel() {
     }
   }
 
-  async function rejectWithdrawal(withdrawalId) {
+  async function rejectWithdrawal(withdrawalId: string) {
     const reason = prompt('Reason for rejection:');
     if (!reason) return;
 
@@ -447,19 +409,20 @@ export default function CompleteAdminPanel() {
     }
   }
 
-  async function viewDocument(bucket, path) {
-    const { data } = await supabase.storage
+  async function viewDocument(bucket: string, path: string) {
+    const { data, error } = await supabase.storage
       .from(bucket)
       .createSignedUrl(path, 3600);
     
-    if (data?.signedUrl) {
-      window.open(data.signedUrl, '_blank');
-    } else {
-      alert('Failed to load document');
+    if (error || !data?.signedUrl) {
+      alert('Failed to load document: ' + (error?.message || 'Unknown error'));
+      return;
     }
+    
+    window.open(data.signedUrl, '_blank');
   }
 
-  function getStatusBadge(status) {
+  function getStatusBadge(status: 'pending' | 'approved' | 'rejected') {
     const styles = {
       pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/50',
       approved: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50',
@@ -472,7 +435,7 @@ export default function CompleteAdminPanel() {
       rejected: XCircle
     };
 
-    const Icon = icons[status] || Clock;
+    const Icon = icons[status];
 
     return (
       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold border ${styles[status]}`}>
@@ -482,10 +445,10 @@ export default function CompleteAdminPanel() {
     );
   }
 
-  function formatDate(dateString) {
+  function formatDate(dateString: string) {
     const date = new Date(dateString);
     const now = new Date();
-    const diffMs = now - date;
+    const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
@@ -618,7 +581,7 @@ export default function CompleteAdminPanel() {
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
-                {tab.badge > 0 && (
+                {tab.badge !== undefined && tab.badge > 0 && (
                   <span className="ml-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
                     {tab.badge}
                   </span>
@@ -638,14 +601,14 @@ export default function CompleteAdminPanel() {
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50"
+                className="w-full pl-12 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50 text-white"
               />
             </div>
             {(activeTab === 'kyc' || activeTab === 'deposits') && (
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50"
+                onChange={(e) => setFilterStatus(e.target.value as any)}
+                className="px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50 text-white"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -818,10 +781,10 @@ export default function CompleteAdminPanel() {
               <h3 className="text-xl font-bold mb-6">Recent Activity</h3>
               <div className="space-y-3 max-h-96 overflow-y-auto">
                 {[...deposits, ...withdrawals]
-                  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                  .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .slice(0, 8)
                   .map((item, idx) => {
-                    const isDeposit = item.payment_proof_url !== undefined;
+                    const isDeposit = 'payment_proof_url' in item;
                     return (
                       <div key={idx} className="flex items-center gap-3 py-2">
                         <div className={`p-2 rounded-lg ${isDeposit ? 'bg-emerald-500/20' : 'bg-purple-500/20'}`}>
@@ -1155,7 +1118,7 @@ export default function CompleteAdminPanel() {
         {/* KYC REVIEW MODAL */}
         {selectedKyc && (
           <div 
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200" 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" 
             onClick={() => setSelectedKyc(null)}
           >
             <div 
