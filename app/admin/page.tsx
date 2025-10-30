@@ -7,6 +7,8 @@ import {
   ArrowUpRight, ArrowDownRight, User, Mail, Phone, MapPin, Calendar,
   Download, Filter, ChevronDown, Settings, Shield, LogOut
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { useRouter } from 'next/navigation';
 
 // Mock Supabase - Replace with real import: import { supabase } from '@/lib/supabase';
 const supabase = {
