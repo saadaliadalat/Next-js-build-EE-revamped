@@ -5,8 +5,8 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import { 
   CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp, 
-  FileText, AlertCircle, Search, RefreshCw, Building2, DollarSign, 
-  ArrowUpRight, ArrowDownRight, User, Settings, Shield
+  FileText, Search, RefreshCw, Building2, ArrowUpRight, ArrowDownRight, 
+  User, Settings, Shield
 } from 'lucide-react';
 
 interface KycSubmission {
@@ -90,35 +90,42 @@ export default function CompleteAdminPanel() {
   const [selectedKyc, setSelectedKyc] = useState<KycSubmission | null>(null);
 
   useEffect(() => {
-    initializeAdmin();
+    let mounted = true;
+    initializeAdmin().then(() => {
+      if (mounted) setLoading(false);
+    });
+    return () => { mounted = false; };
   }, []);
 
-  async function initializeAdmin() {
-    await checkAdminAuth();
-    await fetchAllData();
-    setLoading(false);
-    setupRealtimeSubscriptions();
-  }
-
-  async function checkAdminAuth() {
+  async function checkAdminAuth(): Promise<boolean> {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       alert('Please login first');
       router.push('/auth/login');
-      return;
+      return false;
     }
 
-    const { data: userData } = await supabase
+    const { data: userData, error } = await supabase
       .from('users')
       .select('is_admin')
       .eq('id', user.id)
       .single();
 
-    if (!userData?.is_admin) {
+    if (error || !userData?.is_admin) {
       alert('Access denied. Admin only.');
       router.push('/dashboard');
-      return;
+      return false;
     }
+
+    return true;
+  }
+
+  async function initializeAdmin() {
+    const isAdmin = await checkAdminAuth();
+    if (!isAdmin) return;
+
+    await fetchAllData();
+    setupRealtimeSubscriptions();
   }
 
   function setupRealtimeSubscriptions() {
