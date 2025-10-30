@@ -1,30 +1,27 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp, 
-  FileText, Search, RefreshCw, Building2, 
-  ArrowUpRight, ArrowDownRight, User, Settings, Shield
-} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { 
+  CheckCircle, XCircle, Clock, Eye, Users, Wallet, TrendingUp, 
+  FileText, AlertCircle, Search, RefreshCw, Building2, DollarSign, 
+  ArrowUpRight, ArrowDownRight, User, Settings, Shield
+} from 'lucide-react';
 
-// TypeScript interfaces
 interface KycSubmission {
   id: string;
   user_id: string;
   full_name: string;
   email: string;
-  phone?: string;
-  address?: string;
+  phone: string | null;
+  address: string | null;
   id_document_url: string;
   address_proof_url: string;
   selfie_url: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: string;
   created_at: string;
-  rejection_reason?: string;
-  approved_at?: string;
-  approved_by?: string;
+  rejection_reason?: string | null;
 }
 
 interface Deposit {
@@ -32,42 +29,28 @@ interface Deposit {
   user_id: string;
   amount: string;
   payment_proof_url: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: string;
   created_at: string;
-  approved_at?: string;
-  rejection_reason?: string;
-  approved_by?: string;
-  users?: {
-    email: string;
-    full_name: string;
-  };
+  users?: { email: string; full_name: string | null };
 }
 
 interface Withdrawal {
   id: string;
   user_id: string;
   amount: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: string;
   created_at: string;
-  approved_at?: string;
-  rejection_reason?: string;
-  approved_by?: string;
-  users?: {
-    email: string;
-    full_name: string;
-  };
+  users?: { email: string; full_name: string | null };
 }
 
-interface User {
+interface UserData {
   id: string;
   email: string;
-  full_name?: string;
+  full_name: string | null;
   is_approved: boolean;
   is_admin: boolean;
   created_at: string;
-  balances?: Array<{
-    available_balance: number;
-  }>;
+  balances?: Array<{ available_balance: number }>;
 }
 
 interface BankAccount {
@@ -75,8 +58,8 @@ interface BankAccount {
   bank_name: string;
   account_holder_name: string;
   account_number: string;
-  routing_number?: string;
-  swift_code?: string;
+  routing_number: string | null;
+  swift_code: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -86,12 +69,12 @@ export default function CompleteAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   
   const [kycSubmissions, setKycSubmissions] = useState<KycSubmission[]>([]);
   const [deposits, setDeposits] = useState<Deposit[]>([]);
   const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserData[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   
   const [stats, setStats] = useState({
@@ -110,10 +93,6 @@ export default function CompleteAdminPanel() {
     initializeAdmin();
   }, []);
 
-  useEffect(() => {
-    calculateStats();
-  }, [users, kycSubmissions, deposits, withdrawals]);
-
   async function initializeAdmin() {
     await checkAdminAuth();
     await fetchAllData();
@@ -122,46 +101,23 @@ export default function CompleteAdminPanel() {
   }
 
   async function checkAdminAuth() {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError || !user) {
-        console.error('Auth error:', authError);
-        alert('Please login first');
-        router.push('/login');
-        return false;
-      }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert('Please login first');
+      router.push('/auth/login');
+      return;
+    }
 
-      console.log('Current user:', user.id);
+    const { data: userData } = await supabase
+      .from('users')
+      .select('is_admin')
+      .eq('id', user.id)
+      .single();
 
-      const { data: userData, error: userError } = await supabase
-        .from('users')
-        .select('is_admin, email, full_name')
-        .eq('id', user.id)
-        .single();
-
-      console.log('User data:', userData);
-      console.log('User error:', userError);
-
-      if (userError) {
-        console.error('Error fetching user data:', userError);
-        alert('Error checking admin status: ' + userError.message);
-        return false;
-      }
-
-      if (!userData?.is_admin) {
-        console.warn('User is not admin:', userData);
-        alert('Access denied. Admin privileges required.');
-        router.push('/dashboard');
-        return false;
-      }
-
-      console.log('✅ Admin access granted');
-      return true;
-    } catch (error) {
-      console.error('Unexpected error in checkAdminAuth:', error);
-      alert('An unexpected error occurred');
-      return false;
+    if (!userData?.is_admin) {
+      alert('Access denied. Admin only.');
+      router.push('/dashboard');
+      return;
     }
   }
 
@@ -205,70 +161,46 @@ export default function CompleteAdminPanel() {
       fetchUsers(),
       fetchBankAccounts()
     ]);
+    calculateStats();
   }
 
   async function fetchKycSubmissions() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('kyc_submissions')
       .select('*')
       .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching KYC:', error);
-      return;
-    }
     setKycSubmissions(data || []);
   }
 
   async function fetchDeposits() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('deposits')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching deposits:', error);
-      return;
-    }
     setDeposits(data || []);
   }
 
   async function fetchWithdrawals() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('withdrawals')
       .select('*, users:user_id (email, full_name)')
       .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching withdrawals:', error);
-      return;
-    }
     setWithdrawals(data || []);
   }
 
   async function fetchUsers() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('users')
       .select('*, balances(available_balance)')
       .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching users:', error);
-      return;
-    }
     setUsers(data || []);
   }
 
   async function fetchBankAccounts() {
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from('bank_accounts')
       .select('*')
       .order('created_at', { ascending: false });
-    
-    if (error) {
-      console.error('Error fetching bank accounts:', error);
-      return;
-    }
     setBankAccounts(data || []);
   }
 
@@ -292,9 +224,7 @@ export default function CompleteAdminPanel() {
     if (!confirm('Approve this KYC? User will be verified and can deposit.')) return;
     
     const { data: { user } } = await supabase.auth.getUser();
-    
-    // Update KYC status
-    const { error: kycError } = await supabase
+    const { error } = await supabase
       .from('kyc_submissions')
       .update({
         status: 'approved',
@@ -303,21 +233,10 @@ export default function CompleteAdminPanel() {
       })
       .eq('id', kycId);
 
-    if (kycError) {
-      alert('Error: ' + kycError.message);
-      return;
-    }
-
-    // Update user's is_approved status
-    const { error: userError } = await supabase
-      .from('users')
-      .update({ is_approved: true })
-      .eq('id', userId);
-
-    if (userError) {
-      alert('Error updating user: ' + userError.message);
+    if (error) {
+      alert('Error: ' + error.message);
     } else {
-      alert('✅ KYC Approved! User can now deposit.');
+      alert('KYC Approved! User can now deposit.');
       await fetchAllData();
       setSelectedKyc(null);
     }
@@ -340,7 +259,7 @@ export default function CompleteAdminPanel() {
     if (error) {
       alert('Error: ' + error.message);
     } else {
-      alert('❌ KYC Rejected.');
+      alert('KYC Rejected.');
       await fetchAllData();
       setSelectedKyc(null);
     }
@@ -362,7 +281,7 @@ export default function CompleteAdminPanel() {
     if (error) {
       alert('Error: ' + error.message);
     } else {
-      alert('✅ Deposit Approved! Balance updated automatically.');
+      alert('Deposit Approved! Balance updated automatically.');
       await fetchAllData();
     }
   }
@@ -384,7 +303,7 @@ export default function CompleteAdminPanel() {
     if (error) {
       alert('Error: ' + error.message);
     } else {
-      alert('❌ Deposit Rejected.');
+      alert('Deposit Rejected.');
       await fetchAllData();
     }
   }
@@ -405,7 +324,7 @@ export default function CompleteAdminPanel() {
     if (error) {
       alert('Error: ' + error.message);
     } else {
-      alert('✅ Withdrawal Approved!');
+      alert('Withdrawal Approved!');
       await fetchAllData();
     }
   }
@@ -427,38 +346,37 @@ export default function CompleteAdminPanel() {
     if (error) {
       alert('Error: ' + error.message);
     } else {
-      alert('❌ Withdrawal Rejected.');
+      alert('Withdrawal Rejected.');
       await fetchAllData();
     }
   }
 
   async function viewDocument(bucket: string, path: string) {
-    const { data, error } = await supabase.storage
+    const { data } = await supabase.storage
       .from(bucket)
       .createSignedUrl(path, 3600);
     
-    if (error || !data?.signedUrl) {
-      alert('Failed to load document: ' + (error?.message || 'Unknown error'));
-      return;
+    if (data?.signedUrl) {
+      window.open(data.signedUrl, '_blank');
+    } else {
+      alert('Failed to load document');
     }
-    
-    window.open(data.signedUrl, '_blank');
   }
 
-  function getStatusBadge(status: 'pending' | 'approved' | 'rejected') {
-    const styles = {
+  function getStatusBadge(status: string) {
+    const styles: Record<string, string> = {
       pending: 'bg-yellow-900/30 text-yellow-400 border-yellow-800/50',
       approved: 'bg-emerald-900/30 text-emerald-400 border-emerald-800/50',
       rejected: 'bg-red-900/30 text-red-400 border-red-800/50'
     };
 
-    const icons = {
+    const icons: Record<string, any> = {
       pending: Clock,
       approved: CheckCircle,
       rejected: XCircle
     };
 
-    const Icon = icons[status];
+    const Icon = icons[status] || Clock;
 
     return (
       <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold border ${styles[status]}`}>
@@ -624,14 +542,14 @@ export default function CompleteAdminPanel() {
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-12 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50 text-white"
+                className="w-full pl-12 pr-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50"
               />
             </div>
             {(activeTab === 'kyc' || activeTab === 'deposits') && (
               <select
                 value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value as any)}
-                className="px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50 text-white"
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg focus:outline-none focus:border-emerald-500/50"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -1141,7 +1059,7 @@ export default function CompleteAdminPanel() {
         {/* KYC REVIEW MODAL */}
         {selectedKyc && (
           <div 
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50" 
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200" 
             onClick={() => setSelectedKyc(null)}
           >
             <div 
@@ -1232,13 +1150,13 @@ export default function CompleteAdminPanel() {
                       onClick={() => approveKyc(selectedKyc.id, selectedKyc.user_id)}
                       className="flex-1 px-6 py-4 bg-emerald-500 hover:bg-emerald-600 text-black rounded-lg font-semibold text-lg transition-all hover:scale-105 shadow-lg shadow-emerald-500/20"
                     >
-                      ✓ Approve KYC
+                      Approve KYC
                     </button>
                     <button
                       onClick={() => rejectKyc(selectedKyc.id)}
                       className="flex-1 px-6 py-4 bg-red-500 hover:bg-red-600 text-white rounded-lg font-semibold text-lg transition-all hover:scale-105 shadow-lg shadow-red-500/20"
                     >
-                      ✕ Reject KYC
+                      Reject KYC
                     </button>
                   </div>
                 )}
