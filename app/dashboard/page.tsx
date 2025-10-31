@@ -96,34 +96,35 @@ export default function ProductionUserDashboard() {
   function setupRealtimeSubscriptions() {
     if (!user) return;
 
-    const depositsChannel = supabase
-      .channel('user-deposits')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'deposits', filter: `user_id=eq.${user.id}` },
-        () => fetchAllData()
-      )
-      .subscribe();
-
-    const withdrawalsChannel = supabase
-      .channel('user-withdrawals')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'withdrawals', filter: `user_id=eq.${user.id}` },
-        () => fetchAllData()
-      )
-      .subscribe();
-
-    const balancesChannel = supabase
+    // Realtime balance updates
+    const balanceChannel = supabase
       .channel('user-balance')
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'balances', filter: `user_id=eq.${user.id}` },
-        () => fetchBalance()
+        { event: 'UPDATE', schema: 'public', table: 'balances', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          const newBalance = payload.new as any;
+          setBalance(newBalance.available_balance);
+          setPendingBalance(newBalance.pending_balance);
+        }
+      )
+      .subscribe();
+
+    // Realtime deposit/withdrawal updates
+    const transactionChannel = supabase
+      .channel('user-transactions')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'deposits', filter: `user_id=eq.${user.id}` },
+        () => fetchDeposits()
+      )
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'withdrawals', filter: `user_id=eq.${user.id}` },
+        () => fetchWithdrawals()
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(depositsChannel);
-      supabase.removeChannel(withdrawalsChannel);
-      supabase.removeChannel(balancesChannel);
+      supabase.removeChannel(balanceChannel);
+      supabase.removeChannel(transactionChannel);
     };
   }
 
@@ -147,6 +148,7 @@ export default function ProductionUserDashboard() {
 
     if (userData) {
       setUser(userData as User);
+      setKycStatus(userData.is_approved ? 'approved' : 'not_submitted');
     }
   }
 
@@ -175,12 +177,14 @@ export default function ProductionUserDashboard() {
 
   async function fetchBalance() {
     if (!user) return;
-    let { data: balanceData, error } = await supabase
+    const { data: balanceData, error } = await supabase
       .from('balances')
       .select('available_balance, pending_balance')
       .eq('user_id', user.id)
       .single();
+
     if (error && error.code === 'PGRST116') {
+      // Create balance if missing
       const { data: newBalance } = await supabase
         .from('balances')
         .insert({ 
@@ -190,10 +194,12 @@ export default function ProductionUserDashboard() {
         })
         .select()
         .single();
-      balanceData = newBalance;
+      setBalance(newBalance?.available_balance || 0);
+      setPendingBalance(newBalance?.pending_balance || 0);
+    } else if (balanceData) {
+      setBalance(balanceData.available_balance);
+      setPendingBalance(balanceData.pending_balance);
     }
-    setBalance(balanceData?.available_balance || 0);
-    setPendingBalance(balanceData?.pending_balance || 0);
   }
 
   async function fetchDeposits() {
@@ -272,9 +278,9 @@ export default function ProductionUserDashboard() {
       const fileExt = proofFile.name.split('.').pop();
       const fileName = `${user.id}/deposit-${Date.now()}.${fileExt}`;
       
-      // ✅ FIXED BUCKET NAME
+      // ✅ CORRECT BUCKET NAME
       const { error: uploadError } = await supabase.storage
-        .from('deposit-proofs') // ←←← CORRECT BUCKET NAME
+        .from('deposit-proofs')
         .upload(fileName, proofFile);
       if (uploadError) throw uploadError;
 
@@ -292,7 +298,6 @@ export default function ProductionUserDashboard() {
       setDepositAmount('');
       setProofFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      await fetchAllData();
     } catch (error: any) {
       console.error('Deposit error:', error);
       alert('❌ Error: ' + error.message);
@@ -337,7 +342,6 @@ export default function ProductionUserDashboard() {
       setWithdrawBankName('');
       setWithdrawAccountNumber('');
       setWithdrawAccountHolder('');
-      await fetchAllData();
     } catch (error: any) {
       console.error('Withdrawal error:', error);
       alert('❌ Error: ' + error.message);
