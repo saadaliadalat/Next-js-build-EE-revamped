@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 import {
@@ -8,7 +8,7 @@ import {
   Clock, CheckCircle, XCircle, Copy, AlertCircle,
   Upload, FileText, CreditCard, RefreshCw, Info,
   Shield, DollarSign, Activity, Send, Download, Building2,
-  Eye, EyeOff
+  Eye, EyeOff, Phone, User, Banknote
 } from 'lucide-react';
 
 interface User {
@@ -17,6 +17,7 @@ interface User {
   full_name: string | null;
   is_approved: boolean;
   is_admin: boolean;
+  phone?: string | null;
 }
 
 interface BankAccount {
@@ -38,6 +39,7 @@ interface Deposit {
   created_at: string;
   approved_at?: string;
   rejection_reason?: string | null;
+  payment_proof_url?: string | null;
 }
 
 interface Withdrawal {
@@ -53,15 +55,9 @@ interface Withdrawal {
   account_holder_name?: string;
 }
 
-interface KycSubmission {
-  id: string;
-  user_id: string;
-  status: 'pending' | 'approved' | 'rejected';
-  rejection_reason?: string | null;
-}
-
 export default function ProductionUserDashboard() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [user, setUser] = useState<User | null>(null);
   const [balance, setBalance] = useState(0);
   const [pendingBalance, setPendingBalance] = useState(0);
@@ -73,11 +69,9 @@ export default function ProductionUserDashboard() {
   const [kycStatus, setKycStatus] = useState<'not_submitted' | 'pending' | 'approved' | 'rejected'>('not_submitted');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-
   const [depositAmount, setDepositAmount] = useState('');
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [copiedField, setCopiedField] = useState('');
-
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawBankName, setWithdrawBankName] = useState('');
   const [withdrawAccountNumber, setWithdrawAccountNumber] = useState('');
@@ -135,16 +129,14 @@ export default function ProductionUserDashboard() {
 
   async function checkUser() {
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
-    
     if (authError || !authUser) {
-      console.error('Auth error:', authError);
-      router.push('/login');
+      router.push('/auth/login');
       return;
     }
 
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('id, email, full_name, is_approved, is_admin')
+      .select('id, email, full_name, is_approved, is_admin, phone')
       .eq('id', authUser.id)
       .single();
 
@@ -174,24 +166,20 @@ export default function ProductionUserDashboard() {
       .select('*')
       .eq('is_active', true)
       .order('created_at', { ascending: false });
-    
     if (error) {
       console.error('Error fetching bank accounts:', error);
       return;
     }
-    
     setBankAccounts(data || []);
   }
 
   async function fetchBalance() {
     if (!user) return;
-
     let { data: balanceData, error } = await supabase
       .from('balances')
       .select('available_balance, pending_balance')
       .eq('user_id', user.id)
       .single();
-
     if (error && error.code === 'PGRST116') {
       const { data: newBalance } = await supabase
         .from('balances')
@@ -202,53 +190,44 @@ export default function ProductionUserDashboard() {
         })
         .select()
         .single();
-      
       balanceData = newBalance;
     }
-
     setBalance(balanceData?.available_balance || 0);
     setPendingBalance(balanceData?.pending_balance || 0);
   }
 
   async function fetchDeposits() {
     if (!user) return;
-
     const { data, error } = await supabase
       .from('deposits')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(50);
-    
     if (error) {
       console.error('Error fetching deposits:', error);
       return;
     }
-    
     setDeposits(data || []);
   }
 
   async function fetchWithdrawals() {
     if (!user) return;
-
     const { data, error } = await supabase
       .from('withdrawals')
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(50);
-    
     if (error) {
       console.error('Error fetching withdrawals:', error);
       return;
     }
-    
     setWithdrawals(data || []);
   }
 
   async function fetchKycStatus() {
     if (!user) return;
-
     const { data, error } = await supabase
       .from('kyc_submissions')
       .select('status, rejection_reason')
@@ -256,12 +235,10 @@ export default function ProductionUserDashboard() {
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
-
     if (error && error.code !== 'PGRST116') {
       console.error('Error fetching KYC status:', error);
       return;
     }
-
     if (data) {
       setKycStatus(data.status as any);
     } else {
@@ -275,37 +252,30 @@ export default function ProductionUserDashboard() {
       router.push('/kyc');
       return;
     }
-
     if (!proofFile) {
       alert('⚠️ Please upload payment proof');
       return;
     }
-
     if (!depositAmount || parseFloat(depositAmount) < 10) {
       alert('⚠️ Minimum deposit is $10');
       return;
     }
-
     setSubmitting(true);
-
     try {
-      // Validate file
       if (proofFile.size > 5 * 1024 * 1024) {
         throw new Error('File size must be less than 5MB');
       }
-
       const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
       if (!allowedTypes.includes(proofFile.type)) {
         throw new Error('Only JPG, PNG, and PDF files are allowed');
       }
-
       const fileExt = proofFile.name.split('.').pop();
       const fileName = `${user.id}/deposit-${Date.now()}.${fileExt}`;
       
+      // ✅ FIXED BUCKET NAME
       const { error: uploadError } = await supabase.storage
-        .from('payment-proofs')
+        .from('deposit-proofs') // ←←← CORRECT BUCKET NAME
         .upload(fileName, proofFile);
-
       if (uploadError) throw uploadError;
 
       const { error: depositError } = await supabase
@@ -316,19 +286,13 @@ export default function ProductionUserDashboard() {
           payment_proof_url: fileName,
           status: 'pending'
         });
-
       if (depositError) throw depositError;
 
       alert('✅ Deposit submitted! Awaiting admin approval.');
       setDepositAmount('');
       setProofFile(null);
-      
-      // Reset file input
-      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
-      
+      if (fileInputRef.current) fileInputRef.current.value = '';
       await fetchAllData();
-
     } catch (error: any) {
       console.error('Deposit error:', error);
       alert('❌ Error: ' + error.message);
@@ -343,24 +307,19 @@ export default function ProductionUserDashboard() {
       router.push('/kyc');
       return;
     }
-
     if (!withdrawAmount || parseFloat(withdrawAmount) < 50) {
       alert('⚠️ Minimum withdrawal is $50');
       return;
     }
-
     if (parseFloat(withdrawAmount) > balance) {
       alert('⚠️ Insufficient balance');
       return;
     }
-
     if (!withdrawBankName || !withdrawAccountNumber || !withdrawAccountHolder) {
       alert('⚠️ Please fill all bank details');
       return;
     }
-
     setSubmitting(true);
-
     try {
       const { error } = await supabase
         .from('withdrawals')
@@ -372,16 +331,13 @@ export default function ProductionUserDashboard() {
           account_holder_name: withdrawAccountHolder,
           status: 'pending'
         });
-
       if (error) throw error;
-
       alert('✅ Withdrawal request submitted! Awaiting admin approval.');
       setWithdrawAmount('');
       setWithdrawBankName('');
       setWithdrawAccountNumber('');
       setWithdrawAccountHolder('');
       await fetchAllData();
-
     } catch (error: any) {
       console.error('Withdrawal error:', error);
       alert('❌ Error: ' + error.message);
@@ -398,21 +354,18 @@ export default function ProductionUserDashboard() {
 
   function getStatusBadge(status: string) {
     const styles: Record<string, string> = {
-      pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
-      approved: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-      rejected: 'bg-red-500/10 text-red-400 border-red-500/30'
+      pending: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
+      approved: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
+      rejected: 'bg-red-500/10 text-red-400 border border-red-500/20'
     };
-
     const icons: Record<string, any> = {
       pending: Clock,
       approved: CheckCircle,
       rejected: XCircle
     };
-
     const Icon = icons[status] || Clock;
-
     return (
-      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border ${styles[status]}`}>
+      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold ${styles[status]}`}>
         <Icon className="w-3 h-3" />
         {status.toUpperCase()}
       </span>
@@ -434,8 +387,8 @@ export default function ProductionUserDashboard() {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="text-center">
-          <RefreshCw className="w-12 h-12 text-white animate-spin mx-auto mb-4" />
-          <p className="text-zinc-400">Loading your dashboard...</p>
+          <RefreshCw className="w-12 h-12 text-zinc-400 animate-spin mx-auto mb-4" />
+          <p className="text-zinc-500">Loading your dashboard...</p>
         </div>
       </div>
     );
@@ -445,14 +398,14 @@ export default function ProductionUserDashboard() {
   const totalWithdrawn = withdrawals.filter(w => w.status === 'approved').reduce((sum, w) => sum + parseFloat(w.amount), 0);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="max-w-7xl mx-auto p-4 md:p-8">
-        
+    <div className="min-h-screen bg-black text-zinc-100">
+      <div className="fixed inset-0 bg-gradient-to-br from-zinc-950 via-black to-zinc-950" />
+      <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-4xl font-bold mb-2">
+              <h1 className="text-3xl md:text-4xl font-bold mb-1">
                 Welcome back, <span className="text-white">{user?.full_name || user?.email}</span>
               </h1>
               <p className="text-zinc-500">Manage your trading account</p>
@@ -460,14 +413,14 @@ export default function ProductionUserDashboard() {
             <div className="flex items-center gap-3">
               <button
                 onClick={fetchAllData}
-                className="p-3 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-xl transition-all hover:scale-105"
+                className="p-3 bg-zinc-900/70 backdrop-blur-xl hover:bg-zinc-800/70 border border-zinc-800/50 rounded-xl transition-all hover:scale-105"
               >
-                <RefreshCw className="w-5 h-5" />
+                <RefreshCw className="w-5 h-5 text-zinc-400" />
               </button>
               {user?.is_admin && (
                 <button
                   onClick={() => router.push('/admin')}
-                  className="px-4 py-3 bg-emerald-500 text-black rounded-xl font-bold hover:bg-emerald-600 transition-all hover:scale-105"
+                  className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 backdrop-blur-xl text-white rounded-xl font-bold transition-all hover:scale-105 border border-zinc-700/50"
                 >
                   Admin Panel →
                 </button>
@@ -478,11 +431,11 @@ export default function ProductionUserDashboard() {
 
         {/* KYC Status Banners */}
         {kycStatus === 'not_submitted' && (
-          <div className="relative bg-gradient-to-r from-zinc-900 via-zinc-900 to-zinc-800 border-2 border-yellow-500/50 rounded-2xl p-6 shadow-2xl mb-6 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/5 to-orange-500/5"></div>
-            <div className="relative flex items-center justify-between">
+          <div className="relative bg-gradient-to-r from-zinc-900/80 via-zinc-900/90 to-zinc-800/80 border-2 border-yellow-500/30 rounded-2xl p-6 shadow-xl mb-6 overflow-hidden backdrop-blur-sm">
+            <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/3 to-orange-500/3 opacity-20"></div>
+            <div className="relative flex items-center justify-between flex-wrap gap-4">
               <div className="flex items-center gap-4">
-                <div className="p-3 bg-yellow-500/20 rounded-xl">
+                <div className="p-3 bg-yellow-500/10 backdrop-blur-sm rounded-xl">
                   <Shield className="w-8 h-8 text-yellow-400" />
                 </div>
                 <div>
@@ -501,7 +454,7 @@ export default function ProductionUserDashboard() {
         )}
 
         {kycStatus === 'pending' && (
-          <div className="bg-zinc-900 border border-yellow-500/30 rounded-2xl p-6 mb-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-yellow-500/30 rounded-2xl p-6 mb-6">
             <div className="flex items-start gap-4">
               <Clock className="h-6 w-6 text-yellow-400 flex-shrink-0 mt-1" />
               <div>
@@ -513,7 +466,7 @@ export default function ProductionUserDashboard() {
         )}
 
         {kycStatus === 'approved' && user?.is_approved && (
-          <div className="bg-zinc-900 border border-emerald-500/30 rounded-2xl p-4 mb-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-emerald-500/30 rounded-2xl p-4 mb-6">
             <div className="flex items-center gap-3">
               <CheckCircle className="h-5 w-5 text-emerald-400" />
               <p className="text-sm font-bold text-emerald-400">✓ Account Verified - Ready to Trade</p>
@@ -522,7 +475,7 @@ export default function ProductionUserDashboard() {
         )}
 
         {kycStatus === 'rejected' && (
-          <div className="bg-zinc-900 border border-red-500/30 rounded-2xl p-6 mb-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-red-500/30 rounded-2xl p-6 mb-6">
             <div className="flex items-start gap-4">
               <XCircle className="h-6 w-6 text-red-400 flex-shrink-0 mt-1" />
               <div className="flex-1">
@@ -541,7 +494,7 @@ export default function ProductionUserDashboard() {
 
         {/* Balance Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-gradient-to-br from-white to-zinc-100 border-2 border-white rounded-2xl p-6 text-black shadow-2xl">
+          <div className="bg-gradient-to-br from-white/90 to-zinc-100/90 border-2 border-white/80 rounded-2xl p-6 text-black shadow-xl backdrop-blur-sm">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Wallet className="h-5 w-5 text-black" />
@@ -549,7 +502,7 @@ export default function ProductionUserDashboard() {
               </div>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-1.5 hover:bg-zinc-200 rounded-lg transition"
+                className="p-1.5 hover:bg-white/50 rounded-lg transition"
               >
                 {showBalance ? (
                   <Eye className="h-4 w-4 text-black" />
@@ -558,42 +511,42 @@ export default function ProductionUserDashboard() {
                 )}
               </button>
             </div>
-            <h2 className="text-4xl font-black mb-2">
+            <h2 className="text-3xl md:text-4xl font-black mb-2">
               {showBalance ? `$${balance.toFixed(2)}` : '••••••'}
             </h2>
             <p className="text-xs text-zinc-600 font-semibold">Ready to trade</p>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <Clock className="h-5 w-5 text-yellow-400" />
               <p className="text-zinc-400 text-sm font-bold">Pending</p>
             </div>
-            <h2 className="text-4xl font-black text-yellow-400 mb-2">${pendingBalance.toFixed(2)}</h2>
+            <h2 className="text-3xl md:text-4xl font-black text-yellow-400 mb-2">${pendingBalance.toFixed(2)}</h2>
             <p className="text-xs text-zinc-500 font-semibold">Awaiting approval</p>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <ArrowDownRight className="h-5 w-5 text-emerald-400" />
               <p className="text-zinc-400 text-sm font-bold">Total Deposited</p>
             </div>
-            <h2 className="text-4xl font-black text-emerald-400 mb-2">${totalDeposited.toFixed(2)}</h2>
+            <h2 className="text-3xl md:text-4xl font-black text-emerald-400 mb-2">${totalDeposited.toFixed(2)}</h2>
             <p className="text-xs text-zinc-500 font-semibold">All-time</p>
           </div>
 
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <ArrowUpRight className="h-5 w-5 text-purple-400" />
               <p className="text-zinc-400 text-sm font-bold">Total Withdrawn</p>
             </div>
-            <h2 className="text-4xl font-black text-purple-400 mb-2">${totalWithdrawn.toFixed(2)}</h2>
+            <h2 className="text-3xl md:text-4xl font-black text-purple-400 mb-2">${totalWithdrawn.toFixed(2)}</h2>
             <p className="text-xs text-zinc-500 font-semibold">All-time</p>
           </div>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
+        <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
             { id: 'deposit', label: 'Deposit', icon: Download },
@@ -605,10 +558,10 @@ export default function ProductionUserDashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-bold transition-all whitespace-nowrap ${
+                className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold transition-all whitespace-nowrap min-w-max ${
                   activeTab === tab.id
                     ? 'bg-white text-black shadow-lg scale-105'
-                    : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800 border border-zinc-800'
+                    : 'bg-zinc-900/70 text-zinc-400 hover:bg-zinc-800/70 border border-zinc-800/50 backdrop-blur-xl'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -621,7 +574,7 @@ export default function ProductionUserDashboard() {
         {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
                 <ArrowDownRight className="w-5 h-5 text-emerald-400" />
                 Recent Deposits
@@ -634,7 +587,7 @@ export default function ProductionUserDashboard() {
                   </div>
                 ) : (
                   deposits.slice(0, 5).map((deposit) => (
-                    <div key={deposit.id} className="flex items-center justify-between p-4 bg-zinc-800/50 rounded-xl hover:bg-zinc-800 transition">
+                    <div key={deposit.id} className="flex items-center justify-between p-4 bg-zinc-800/40 rounded-xl hover:bg-zinc-800/60 transition">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-emerald-500/10 rounded-lg">
                           <ArrowDownRight className="h-5 w-5 text-emerald-400" />
@@ -650,8 +603,7 @@ export default function ProductionUserDashboard() {
                 )}
               </div>
             </div>
-
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <h3 className="font-bold text-lg mb-6 flex items-center gap-2">
                 <ArrowUpRight className="w-5 h-5 text-purple-400" />
                 Recent Withdrawals
@@ -664,7 +616,7 @@ export default function ProductionUserDashboard() {
                   </div>
                 ) : (
                   withdrawals.slice(0, 5).map((withdrawal) => (
-                    <div key={withdrawal.id} className="flex items-center justify-between p-4 bg-zinc-800/50 rounded-xl hover:bg-zinc-800 transition">
+                    <div key={withdrawal.id} className="flex items-center justify-between p-4 bg-zinc-800/40 rounded-xl hover:bg-zinc-800/60 transition">
                       <div className="flex items-center gap-3">
                         <div className="p-2 bg-purple-500/10 rounded-lg">
                           <ArrowUpRight className="h-5 w-5 text-purple-400" />
@@ -687,14 +639,13 @@ export default function ProductionUserDashboard() {
         {activeTab === 'deposit' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Bank Details */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-emerald-500/10 rounded-lg">
                   <CreditCard className="h-6 w-6 text-emerald-400" />
                 </div>
                 <h2 className="text-xl font-bold">Company Bank Details</h2>
               </div>
-
               {bankAccounts.length === 0 ? (
                 <div className="text-center py-12">
                   <Building2 className="w-12 h-12 text-zinc-700 mx-auto mb-3" />
@@ -707,16 +658,15 @@ export default function ProductionUserDashboard() {
                       <p className="text-xs text-zinc-500 mb-2 font-bold">BANK NAME</p>
                       <p className="text-2xl font-black text-emerald-400">{bank.bank_name}</p>
                     </div>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between bg-zinc-800/50 rounded-xl p-4 border border-zinc-800">
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between bg-zinc-800/40 rounded-xl p-4 border border-zinc-800/30">
                         <div>
                           <p className="text-xs text-zinc-500 font-bold mb-1">ACCOUNT HOLDER</p>
                           <p className="font-bold">{bank.account_holder_name}</p>
                         </div>
                         <button
                           onClick={() => copyToClipboard(bank.account_holder_name, 'Account Holder')}
-                          className="p-2 hover:bg-zinc-700 rounded-lg transition"
+                          className="p-2 hover:bg-zinc-700/50 rounded-lg transition"
                         >
                           {copiedField === 'Account Holder' ? (
                             <CheckCircle className="h-4 w-4 text-emerald-400" />
@@ -725,15 +675,14 @@ export default function ProductionUserDashboard() {
                           )}
                         </button>
                       </div>
-
-                      <div className="flex items-center justify-between bg-zinc-800/50 rounded-xl p-4 border border-zinc-800">
+                      <div className="flex items-center justify-between bg-zinc-800/40 rounded-xl p-4 border border-zinc-800/30">
                         <div>
                           <p className="text-xs text-zinc-500 font-bold mb-1">ACCOUNT NUMBER</p>
                           <p className="font-mono font-bold">{bank.account_number}</p>
                         </div>
                         <button
                           onClick={() => copyToClipboard(bank.account_number, 'Account Number')}
-                          className="p-2 hover:bg-zinc-700 rounded-lg transition"
+                          className="p-2 hover:bg-zinc-700/50 rounded-lg transition"
                         >
                           {copiedField === 'Account Number' ? (
                             <CheckCircle className="h-4 w-4 text-emerald-400" />
@@ -742,16 +691,15 @@ export default function ProductionUserDashboard() {
                           )}
                         </button>
                       </div>
-
                       {bank.routing_number && (
-                        <div className="flex items-center justify-between bg-zinc-800/50 rounded-xl p-4 border border-zinc-800">
+                        <div className="flex items-center justify-between bg-zinc-800/40 rounded-xl p-4 border border-zinc-800/30">
                           <div>
                             <p className="text-xs text-zinc-500 font-bold mb-1">ROUTING NUMBER</p>
                             <p className="font-mono font-bold">{bank.routing_number}</p>
                           </div>
                           <button
                             onClick={() => copyToClipboard(bank.routing_number!, 'Routing Number')}
-                            className="p-2 hover:bg-zinc-700 rounded-lg transition"
+                            className="p-2 hover:bg-zinc-700/50 rounded-lg transition"
                           >
                             {copiedField === 'Routing Number' ? (
                               <CheckCircle className="h-4 w-4 text-emerald-400" />
@@ -761,16 +709,15 @@ export default function ProductionUserDashboard() {
                           </button>
                         </div>
                       )}
-
                       {bank.swift_code && (
-                        <div className="flex items-center justify-between bg-zinc-800/50 rounded-xl p-4 border border-zinc-800">
+                        <div className="flex items-center justify-between bg-zinc-800/40 rounded-xl p-4 border border-zinc-800/30">
                           <div>
                             <p className="text-xs text-zinc-500 font-bold mb-1">SWIFT CODE</p>
                             <p className="font-mono font-bold">{bank.swift_code}</p>
                           </div>
                           <button
                             onClick={() => copyToClipboard(bank.swift_code!, 'SWIFT Code')}
-                            className="p-2 hover:bg-zinc-700 rounded-lg transition"
+                            className="p-2 hover:bg-zinc-700/50 rounded-lg transition"
                           >
                             {copiedField === 'SWIFT Code' ? (
                               <CheckCircle className="h-4 w-4 text-emerald-400" />
@@ -781,9 +728,8 @@ export default function ProductionUserDashboard() {
                         </div>
                       )}
                     </div>
-
                     {bank.instructions && (
-                      <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-4">
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
                         <div className="flex items-start gap-2">
                           <Info className="h-5 w-5 text-blue-400 flex-shrink-0 mt-0.5" />
                           <div>
@@ -799,16 +745,15 @@ export default function ProductionUserDashboard() {
             </div>
 
             {/* Deposit Form */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+            <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-emerald-500/10 rounded-lg">
                   <Upload className="h-6 w-6 text-emerald-400" />
                 </div>
                 <h2 className="text-xl font-bold">Submit Deposit</h2>
               </div>
-
               {!user?.is_approved ? (
-                <div className="text-center py-12 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
+                <div className="text-center py-12 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                   <Shield className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
                   <p className="text-yellow-400 font-bold mb-2">KYC Required</p>
                   <p className="text-zinc-400 text-sm mb-4">Complete verification to deposit</p>
@@ -820,7 +765,7 @@ export default function ProductionUserDashboard() {
                   </button>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-5">
                   <div>
                     <label className="block text-sm font-bold text-zinc-400 mb-2">
                       Amount (USD)
@@ -834,22 +779,22 @@ export default function ProductionUserDashboard() {
                         placeholder="Minimum $10"
                         value={depositAmount}
                         onChange={(e) => setDepositAmount(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white transition font-bold"
+                        className="w-full pl-12 pr-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 transition font-bold"
                         required
                       />
                     </div>
                   </div>
-
                   <div>
                     <label className="block text-sm font-bold text-zinc-400 mb-2 flex items-center gap-2">
                       <FileText className="h-4 w-4" />
                       Payment Proof (Receipt/Screenshot)
                     </label>
                     <input
+                      ref={fileInputRef}
                       type="file"
                       accept="image/*,.pdf"
                       onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                      className="w-full px-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-white file:text-black file:font-bold hover:file:bg-zinc-200 file:transition focus:outline-none focus:border-white transition"
+                      className="w-full px-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-white file:text-black file:font-bold hover:file:bg-zinc-200 file:transition focus:outline-none focus:border-emerald-500/50 transition"
                       required
                     />
                     <p className="text-xs text-zinc-500 mt-2 flex items-center gap-1">
@@ -857,13 +802,11 @@ export default function ProductionUserDashboard() {
                       JPG, PNG, PDF - Max 5MB
                     </p>
                   </div>
-
                   {proofFile && (
                     <div className="text-xs text-emerald-400 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl font-bold">
                       ✓ Selected: {proofFile.name}
                     </div>
                   )}
-
                   <button
                     onClick={handleDepositSubmit}
                     disabled={submitting}
@@ -881,8 +824,7 @@ export default function ProductionUserDashboard() {
                       </>
                     )}
                   </button>
-
-                  <div className="bg-zinc-800/50 border border-zinc-800 rounded-xl p-4">
+                  <div className="bg-zinc-800/40 border border-zinc-800/30 rounded-xl p-4">
                     <p className="text-xs text-zinc-400 leading-relaxed">
                       <Info className="h-3 w-3 inline mr-1" />
                       After transferring funds to our bank account, upload your payment receipt here. Your balance will be updated within 24 hours after admin approval.
@@ -897,7 +839,7 @@ export default function ProductionUserDashboard() {
         {/* WITHDRAW TAB */}
         {activeTab === 'withdraw' && (
           <div className="max-w-2xl mx-auto">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-8">
+            <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-8">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-purple-500/10 rounded-lg">
                   <Send className="h-6 w-6 text-purple-400" />
@@ -907,9 +849,8 @@ export default function ProductionUserDashboard() {
                   <p className="text-sm text-zinc-500">Minimum $50 withdrawal</p>
                 </div>
               </div>
-
               {!user?.is_approved ? (
-                <div className="text-center py-12 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
+                <div className="text-center py-12 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                   <Shield className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
                   <p className="text-yellow-400 font-bold mb-2">KYC Required</p>
                   <p className="text-zinc-400 text-sm mb-4">Complete verification to withdraw</p>
@@ -921,18 +862,17 @@ export default function ProductionUserDashboard() {
                   </button>
                 </div>
               ) : balance < 50 ? (
-                <div className="text-center py-12 bg-red-500/5 border border-red-500/20 rounded-xl">
+                <div className="text-center py-12 bg-red-500/10 border border-red-500/20 rounded-xl">
                   <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
                   <p className="text-red-400 font-bold mb-2">Insufficient Balance</p>
                   <p className="text-zinc-400 text-sm">Minimum withdrawal is $50. Your balance: ${balance.toFixed(2)}</p>
                 </div>
               ) : (
                 <div className="space-y-5">
-                  <div className="bg-zinc-800/50 border border-zinc-800 rounded-xl p-4">
+                  <div className="bg-zinc-800/40 border border-zinc-800/30 rounded-xl p-4">
                     <p className="text-sm text-zinc-400 mb-1">Available Balance</p>
                     <p className="text-3xl font-black">${balance.toFixed(2)}</p>
                   </div>
-
                   <div>
                     <label className="block text-sm font-bold text-zinc-400 mb-2">
                       Withdrawal Amount (USD)
@@ -947,45 +887,40 @@ export default function ProductionUserDashboard() {
                         placeholder="Minimum $50"
                         value={withdrawAmount}
                         onChange={(e) => setWithdrawAmount(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white transition font-bold"
+                        className="w-full pl-12 pr-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-purple-500/50 transition font-bold"
                         required
                       />
                     </div>
                   </div>
-
-                  <div className="border-t border-zinc-800 pt-5">
+                  <div className="border-t border-zinc-800/30 pt-5">
                     <p className="text-sm font-bold text-zinc-400 mb-4">Your Bank Details</p>
-                    
-                    <div className="space-y-3">
+                    <div className="space-y-4">
                       <input
                         type="text"
                         placeholder="Bank Name"
                         value={withdrawBankName}
                         onChange={(e) => setWithdrawBankName(e.target.value)}
-                        className="w-full px-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white transition font-bold"
+                        className="w-full px-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-purple-500/50 transition font-bold"
                         required
                       />
-
                       <input
                         type="text"
                         placeholder="Account Holder Name"
                         value={withdrawAccountHolder}
                         onChange={(e) => setWithdrawAccountHolder(e.target.value)}
-                        className="w-full px-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white transition font-bold"
+                        className="w-full px-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-purple-500/50 transition font-bold"
                         required
                       />
-
                       <input
                         type="text"
                         placeholder="Account Number"
                         value={withdrawAccountNumber}
                         onChange={(e) => setWithdrawAccountNumber(e.target.value)}
-                        className="w-full px-4 py-4 bg-zinc-800 border border-zinc-700 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-white transition font-bold"
+                        className="w-full px-4 py-4 bg-zinc-800/60 backdrop-blur-xl border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-purple-500/50 transition font-bold"
                         required
                       />
                     </div>
                   </div>
-
                   <button
                     onClick={handleWithdrawalSubmit}
                     disabled={submitting}
@@ -1003,8 +938,7 @@ export default function ProductionUserDashboard() {
                       </>
                     )}
                   </button>
-
-                  <div className="bg-zinc-800/50 border border-zinc-800 rounded-xl p-4">
+                  <div className="bg-zinc-800/40 border border-zinc-800/30 rounded-xl p-4">
                     <p className="text-xs text-zinc-400 leading-relaxed">
                       <Info className="h-3 w-3 inline mr-1" />
                       Withdrawals are processed within 1-3 business days. Ensure your bank details are correct to avoid delays.
@@ -1018,7 +952,7 @@ export default function ProductionUserDashboard() {
 
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="font-bold text-lg flex items-center gap-2">
                 <FileText className="w-5 h-5" />
@@ -1028,8 +962,7 @@ export default function ProductionUserDashboard() {
                 {deposits.length + withdrawals.length} total transactions
               </p>
             </div>
-
-            <div className="space-y-3">
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
               {[
                 ...deposits.map(d => ({...d, type: 'deposit' as const})), 
                 ...withdrawals.map(w => ({...w, type: 'withdrawal' as const}))
@@ -1048,7 +981,7 @@ export default function ProductionUserDashboard() {
                 ]
                   .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
                   .map((transaction) => (
-                    <div key={transaction.id} className="p-5 bg-zinc-800/30 border border-zinc-800 rounded-xl hover:bg-zinc-800/50 transition">
+                    <div key={transaction.id} className="p-5 bg-zinc-800/40 border border-zinc-800/30 rounded-xl hover:bg-zinc-800/60 transition">
                       <div className="flex justify-between items-start mb-3">
                         <div className="flex items-start gap-4">
                           <div className={`p-3 rounded-xl ${
@@ -1080,16 +1013,14 @@ export default function ProductionUserDashboard() {
                           {getStatusBadge(transaction.status)}
                         </div>
                       </div>
-
                       {transaction.rejection_reason && (
                         <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
                           <p className="text-xs text-red-400 font-bold mb-1">Rejection Reason:</p>
                           <p className="text-sm text-red-300">{transaction.rejection_reason}</p>
                         </div>
                       )}
-
                       {transaction.type === 'withdrawal' && 'bank_name' in transaction && transaction.bank_name && (
-                        <div className="mt-3 p-3 bg-zinc-800 border border-zinc-700 rounded-lg">
+                        <div className="mt-3 p-3 bg-zinc-800/50 border border-zinc-700/50 rounded-lg">
                           <p className="text-xs text-zinc-500 font-bold mb-2">Bank Details:</p>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div>
@@ -1109,7 +1040,6 @@ export default function ProductionUserDashboard() {
             </div>
           </div>
         )}
-
       </div>
     </div>
   );
