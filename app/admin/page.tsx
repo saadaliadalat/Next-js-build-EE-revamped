@@ -22,12 +22,9 @@ import {
   BarChart3,
   Eye,
   X,
-  Phone,
   Ban,
   Trash2,
-  Info,
-  Copy,
-  User as UserIcon
+  Phone
 } from 'lucide-react';
 
 interface User {
@@ -40,7 +37,9 @@ interface User {
   phone: string | null;
   created_at: string;
   balances?: { amount: number }[];
+  banned?: boolean;
 }
+
 interface KycSubmission {
   id: string;
   user_id: string;
@@ -59,6 +58,7 @@ interface KycSubmission {
   rejection_reason?: string | null;
   created_at: string;
 }
+
 interface Deposit {
   id: string;
   user_id: string;
@@ -68,6 +68,7 @@ interface Deposit {
   created_at: string;
   rejection_reason?: string | null;
 }
+
 interface Withdrawal {
   id: string;
   user_id: string;
@@ -79,6 +80,7 @@ interface Withdrawal {
   created_at: string;
   rejection_reason?: string | null;
 }
+
 interface Trade {
   id: string;
   user_id: string;
@@ -91,6 +93,7 @@ interface Trade {
   status: string;
   created_at: string;
 }
+
 interface Transaction {
   id: string;
   user_id: string;
@@ -142,7 +145,6 @@ export default function AdminPanel() {
   const [showUserDetailsModal, setShowUserDetailsModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [userToBan, setUserToBan] = useState<User | null>(null);
-  const [copiedField, setCopiedField] = useState('');
 
   useEffect(() => {
     init();
@@ -155,7 +157,7 @@ export default function AdminPanel() {
   }
 
   async function checkAdmin() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {  { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/auth/login');
       return false;
@@ -376,21 +378,46 @@ export default function AdminPanel() {
   }
 
   async function banUser(userId: string) {
-    const { error } = await supabase
-      .from('users')
-      .update({ is_approved: false, kyc_status: 'rejected' })
-      .eq('id', userId);
-    if (error) {
-      console.error('Ban user error:', error);
-      alert('Failed to ban user');
-    } else {
-      alert('User banned successfully');
+    if (!confirm('⚠️ PERMANENT BAN: This user will be blocked from logging in. Continue?')) return;
+    
+    try {
+      // Disable auth user
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users/${userId}`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
+            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ 
+            banned_until: 'infinity' 
+          }),
+        }
+      );
+
+      if (!response.ok) throw new Error('Failed to disable auth user');
+
+      // Mark as banned in your users table
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ banned: true, is_approved: false })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      alert('✅ User permanently banned');
       await loadAllData();
+    } catch (error: any) {
+      console.error('Ban error:', error);
+      alert('❌ Ban failed: ' + (error.message || 'Unknown error'));
     }
   }
 
   async function deleteUser(userId: string) {
-    // Delete related records first
+    if (!confirm('⚠️ PERMANENT DELETE: This will delete all user data. Continue?')) return;
+    
     await supabase.from('kyc_submissions').delete().eq('user_id', userId);
     await supabase.from('deposits').delete().eq('user_id', userId);
     await supabase.from('withdrawals').delete().eq('user_id', userId);
@@ -424,12 +451,6 @@ export default function AdminPanel() {
       </span>
     );
   };
-
-  function copyToClipboard(text: string, label: string) {
-    navigator.clipboard.writeText(text);
-    setCopiedField(label);
-    setTimeout(() => setCopiedField(''), 2000);
-  }
 
   if (loading)
     return (
@@ -555,9 +576,15 @@ export default function AdminPanel() {
                             ${(u.balances?.[0]?.amount || 0).toFixed(2)}
                           </td>
                           <td className="p-4">
-                            {u.is_approved
-                              ? badge('approved')
-                              : badge('pending')}
+                            {u.banned ? (
+                              <span className="px-3 py-1 rounded-full text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+                                BANNED
+                              </span>
+                            ) : u.is_approved ? (
+                              badge('approved')
+                            ) : (
+                              badge('pending')
+                            )}
                           </td>
                           <td className="p-4 flex gap-1 flex-wrap">
                             <button
@@ -698,7 +725,7 @@ export default function AdminPanel() {
                       )}
                       {d.payment_proof_url && (
                         <a
-                          href={supabase.storage.from('payment-proofs').getPublicUrl(d.payment_proof_url).data.publicUrl}
+                          href={supabase.storage.from('deposit-proofs').getPublicUrl(d.payment_proof_url).data.publicUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="p-2 bg-zinc-800 hover:bg-zinc-700 rounded-full transition-colors duration-200 border border-zinc-700/50"
@@ -1128,7 +1155,7 @@ export default function AdminPanel() {
                 <div>
                   <p className="text-xs text-zinc-500">Status</p>
                   <p className="font-medium text-white">
-                    {selectedUser.is_approved ? 'Verified' : 'Not Verified'}
+                    {selectedUser.banned ? 'Banned' : selectedUser.is_approved ? 'Verified' : 'Not Verified'}
                   </p>
                 </div>
                 <div>
