@@ -5,7 +5,7 @@ export interface User {
   full_name: string | null;
   is_approved: boolean;
   is_admin: boolean;
-  balances?: { available_balance: number }[];
+  balances?: { amount: number }[];
 }
 
 export interface KycSubmission {
@@ -46,4 +46,15 @@ export interface BankAccount {
   account_holder_name: string;
   account_number: string;
   swift_code?: string | null;
+}
+
+export interface Trade {
+  id: string;
+  user_id: string;
+  symbol: string;
+  type: 'buy' | 'sell';
+  quantity: string;
+  entry_price: string;
+  status: 'open' | 'closed';
+  created_at: string;
 }
