@@ -1,3 +1,4 @@
+// app/dashboard/page.tsx
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -96,7 +97,6 @@ export default function ProductionUserDashboard() {
   function setupRealtimeSubscriptions() {
     if (!user) return;
 
-    // Realtime balance updates
     const balanceChannel = supabase
       .channel('user-balance')
       .on('postgres_changes',
@@ -109,7 +109,6 @@ export default function ProductionUserDashboard() {
       )
       .subscribe();
 
-    // Realtime deposit/withdrawal updates
     const transactionChannel = supabase
       .channel('user-transactions')
       .on('postgres_changes',
@@ -184,7 +183,6 @@ export default function ProductionUserDashboard() {
       .single();
 
     if (error && error.code === 'PGRST116') {
-      // Create balance if missing
       const { data: newBalance } = await supabase
         .from('balances')
         .insert({ 
@@ -278,7 +276,6 @@ export default function ProductionUserDashboard() {
       const fileExt = proofFile.name.split('.').pop();
       const fileName = `${user.id}/deposit-${Date.now()}.${fileExt}`;
       
-      // ✅ CORRECT BUCKET NAME
       const { error: uploadError } = await supabase.storage
         .from('deposit-proofs')
         .upload(fileName, proofFile);
@@ -298,6 +295,7 @@ export default function ProductionUserDashboard() {
       setDepositAmount('');
       setProofFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      await fetchAllData();
     } catch (error: any) {
       console.error('Deposit error:', error);
       alert('❌ Error: ' + error.message);
@@ -342,6 +340,7 @@ export default function ProductionUserDashboard() {
       setWithdrawBankName('');
       setWithdrawAccountNumber('');
       setWithdrawAccountHolder('');
+      await fetchAllData();
     } catch (error: any) {
       console.error('Withdrawal error:', error);
       alert('❌ Error: ' + error.message);
@@ -405,7 +404,6 @@ export default function ProductionUserDashboard() {
     <div className="min-h-screen bg-black text-zinc-100">
       <div className="fixed inset-0 bg-gradient-to-br from-zinc-950 via-black to-zinc-950" />
       <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -433,7 +431,6 @@ export default function ProductionUserDashboard() {
           </div>
         </div>
 
-        {/* KYC Status Banners */}
         {kycStatus === 'not_submitted' && (
           <div className="relative bg-gradient-to-r from-zinc-900/80 via-zinc-900/90 to-zinc-800/80 border-2 border-yellow-500/30 rounded-2xl p-6 shadow-xl mb-6 overflow-hidden backdrop-blur-sm">
             <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/3 to-orange-500/3 opacity-20"></div>
@@ -496,7 +493,6 @@ export default function ProductionUserDashboard() {
           </div>
         )}
 
-        {/* Balance Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-gradient-to-br from-white/90 to-zinc-100/90 border-2 border-white/80 rounded-2xl p-6 text-black shadow-xl backdrop-blur-sm">
             <div className="flex items-center justify-between mb-4">
@@ -549,7 +545,6 @@ export default function ProductionUserDashboard() {
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2 scrollbar-hide">
           {[
             { id: 'overview', label: 'Overview', icon: Activity },
@@ -575,7 +570,6 @@ export default function ProductionUserDashboard() {
           })}
         </div>
 
-        {/* OVERVIEW TAB */}
         {activeTab === 'overview' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
@@ -639,10 +633,8 @@ export default function ProductionUserDashboard() {
           </div>
         )}
 
-        {/* DEPOSIT TAB */}
         {activeTab === 'deposit' && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Bank Details */}
             <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-emerald-500/10 rounded-lg">
@@ -748,7 +740,6 @@ export default function ProductionUserDashboard() {
               )}
             </div>
 
-            {/* Deposit Form */}
             <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-emerald-500/10 rounded-lg">
@@ -840,7 +831,6 @@ export default function ProductionUserDashboard() {
           </div>
         )}
 
-        {/* WITHDRAW TAB */}
         {activeTab === 'withdraw' && (
           <div className="max-w-2xl mx-auto">
             <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-8">
@@ -954,7 +944,6 @@ export default function ProductionUserDashboard() {
           </div>
         )}
 
-        {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/50 rounded-2xl p-6">
             <div className="flex items-center justify-between mb-6">
