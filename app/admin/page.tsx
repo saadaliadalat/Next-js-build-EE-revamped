@@ -157,7 +157,7 @@ export default function AdminPanel() {
   }
 
   async function checkAdmin() {
-    const {  { user } } = await supabase.auth.getUser();
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       router.push('/auth/login');
       return false;
@@ -187,18 +187,18 @@ export default function AdminPanel() {
     setTransactions(tx.data ?? []);
     setStats({
       users: (u.data ?? []).length,
-      verified: (u.data ?? []).filter(x => x.is_approved).length,
-      pendingKyc: (k.data ?? []).filter(x => x.status === 'pending').length,
-      pendingDep: (d.data ?? []).filter(x => x.status === 'pending').length,
-      pendingWd: (w.data ?? []).filter(x => x.status === 'pending').length,
+      verified: (u.data ?? []).filter((x: User) => x.is_approved).length,
+      pendingKyc: (k.data ?? []).filter((x: KycSubmission) => x.status === 'pending').length,
+      pendingDep: (d.data ?? []).filter((x: Deposit) => x.status === 'pending').length,
+      pendingWd: (w.data ?? []).filter((x: Withdrawal) => x.status === 'pending').length,
       totalDep: (d.data ?? [])
-        .filter(x => x.status === 'approved')
+        .filter((x: Deposit) => x.status === 'approved')
         .reduce((s, x) => s + parseFloat(x.amount), 0),
       totalWd: (w.data ?? [])
-        .filter(x => x.status === 'approved')
+        .filter((x: Withdrawal) => x.status === 'approved')
         .reduce((s, x) => s + parseFloat(x.amount), 0),
       totalVolume: (t.data ?? []).reduce(
-        (s, x) => s + parseFloat(x.quantity) * parseFloat(x.entry_price),
+        (s, x: Trade) => s + parseFloat(x.quantity) * parseFloat(x.entry_price),
         0
       )
     });
@@ -381,24 +381,6 @@ export default function AdminPanel() {
     if (!confirm('⚠️ PERMANENT BAN: This user will be blocked from logging in. Continue?')) return;
     
     try {
-      // Disable auth user
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users/${userId}`,
-        {
-          method: 'PUT',
-          headers: {
-            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-            apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ 
-            banned_until: 'infinity' 
-          }),
-        }
-      );
-
-      if (!response.ok) throw new Error('Failed to disable auth user');
-
       // Mark as banned in your users table
       const { error: updateError } = await supabase
         .from('users')
