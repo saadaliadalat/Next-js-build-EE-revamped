@@ -36,7 +36,7 @@ interface User {
   kyc_status: string;
   phone: string | null;
   created_at: string;
-  balances?: { amount: number }[];
+  balances?: { available_balance: number }[];
   banned?: boolean;
 }
 
@@ -172,7 +172,7 @@ export default function AdminPanel() {
 
   async function loadAllData() {
     const [u, k, d, w, t, tx] = await Promise.all([
-      supabase.from('users').select('*, balances(amount)'),
+      supabase.from('users').select('*, balances(available_balance)'),
       supabase.from('kyc_submissions').select('*'),
       supabase.from('deposits').select('*'),
       supabase.from('withdrawals').select('*'),
@@ -205,9 +205,15 @@ export default function AdminPanel() {
   }
 
   async function adjustBalance() {
-    if (!selectedUser || !balanceForm.amount || !balanceForm.reason) return;
+    if (!selectedUser || !balanceForm.amount || !balanceForm.reason) {
+      alert('Please fill all fields');
+      return;
+    }
     const amount = parseFloat(balanceForm.amount);
-    if (isNaN(amount)) return;
+    if (isNaN(amount)) {
+      alert('Invalid amount');
+      return;
+    }
     const { error } = await supabase.rpc('adjust_balance', {
       user_id: selectedUser.id,
       amount: balanceForm.type === 'debit' ? -amount : amount,
@@ -215,8 +221,10 @@ export default function AdminPanel() {
     });
     if (error) {
       console.error('Adjust balance error:', error);
+      alert('Error adjusting balance: ' + error.message);
       return;
     }
+    alert('✅ Balance adjusted successfully!');
     await loadAllData();
     setShowBalanceModal(false);
     setBalanceForm({ amount: '', reason: '', type: 'credit' });
@@ -381,7 +389,6 @@ export default function AdminPanel() {
     if (!confirm('⚠️ PERMANENT BAN: This user will be blocked from logging in. Continue?')) return;
     
     try {
-      // Mark as banned in your users table
       const { error: updateError } = await supabase
         .from('users')
         .update({ banned: true, is_approved: false })
@@ -555,7 +562,7 @@ export default function AdminPanel() {
                             <p className="text-xs text-zinc-500">{u.email}</p>
                           </td>
                           <td className="p-4 text-emerald-400 font-medium">
-                            ${(u.balances?.[0]?.amount || 0).toFixed(2)}
+                            ${(u.balances?.[0]?.available_balance || 0).toFixed(2)}
                           </td>
                           <td className="p-4">
                             {u.banned ? (
