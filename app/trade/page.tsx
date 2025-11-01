@@ -16,8 +16,10 @@ type Trade = {
   type: 'buy' | 'sell';
   quantity: number;
   entry_price: number;
+  current_price: number;
   status: 'open' | 'closed';
   profit_loss?: number;
+  unrealized_pl?: number;
   created_at: string;
   leverage?: number;
   stop_loss?: number;
@@ -51,8 +53,6 @@ type AISignal = {
   signal: 'STRONG_BUY' | 'BUY' | 'SELL' | 'STRONG_SELL' | 'NEUTRAL';
   confidence: number;
   reasons: string[];
-  suggestedStopLoss: number;
-  suggestedTakeProfit: number;
 };
 
 const GlassCard = memo(({ children, className = "", delay = 0, glow = false }: { children: React.ReactNode; className?: string; delay?: number; glow?: boolean }) => (
@@ -82,7 +82,7 @@ const NumberAnimation = memo(({ value, format = (v: number) => v.toFixed(2), cla
   </motion.span>
 ));
 
-const LeverageSlider = memo(({ leverage, setLeverage, maxLeverage = 400 }: { leverage: number; setLeverage: (l: number) => void; maxLeverage?: number }) => {
+const LeverageSlider = memo(({ leverage, setLeverage }: { leverage: number; setLeverage: (l: number) => void }) => {
   const presets = [1, 5, 10, 25, 50, 100];
   
   return (
@@ -206,31 +206,10 @@ const MarketSelector = memo(({ selectedSymbol, setSelectedSymbol, searchQuery, s
                     </span>
                   </div>
                   <div className="text-xs text-zinc-400 truncate mt-0.5">{market.name}</div>
+                  <div className="text-sm font-mono text-white mt-1">${market.price.toFixed(2)}</div>
                 </div>
                 
                 <div className="flex flex-col items-end gap-1">
-                  {market.category === 'crypto' && market.sparkline && (
-                    <div className="w-20 h-8">
-                      <ResponsiveContainer>
-                        <AreaChart data={market.sparkline} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id={`gradient-${market.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor="#ffffff" stopOpacity={0.3} />
-                              <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
-                            </linearGradient>
-                          </defs>
-                          <Area
-                            type="monotone"
-                            dataKey="close"
-                            stroke="#ffffff"
-                            fill={`url(#gradient-${market.symbol})`}
-                            strokeWidth={1.5}
-                            isAnimationActive={false}
-                          />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
                   <div className={`flex items-center gap-1 text-sm font-bold ${isPositive ? 'text-white' : 'text-zinc-500'}`}>
                     {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                     <NumberAnimation value={market.change24h} format={(v) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`} />
@@ -273,69 +252,6 @@ const StatsCard = memo(({ icon: Icon, label, value, change, valueColor = "text-w
   </GlassCard>
 ));
 
-const AITradingSignals = memo(({ signals }: { signals: AISignal[] }) => {
-  const topSignals = signals.filter(s => s.confidence > 0.7).slice(0, 3);
-  
-  return (
-    <GlassCard glow>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xl font-bold text-white flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-400" />
-            AI Trading Signals
-          </h3>
-          <div className="text-xs px-2 py-1 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/30">
-            {topSignals.length} Active
-          </div>
-        </div>
-        
-        {topSignals.length === 0 ? (
-          <p className="text-sm text-zinc-400">Analyzing markets...</p>
-        ) : (
-          <div className="space-y-3">
-            {topSignals.map((signal) => {
-              const signalColors = {
-                STRONG_BUY: 'bg-emerald-900/50 border-emerald-500/50 text-emerald-300',
-                BUY: 'bg-emerald-900/30 border-emerald-500/30 text-emerald-300',
-                NEUTRAL: 'bg-zinc-800/50 border-zinc-600/50 text-zinc-300',
-                SELL: 'bg-orange-900/30 border-orange-500/30 text-orange-300',
-                STRONG_SELL: 'bg-red-900/50 border-red-500/50 text-red-300',
-              };
-
-              return (
-                <motion.div
-                  key={signal.symbol}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className={`p-3 rounded-lg border ${signalColors[signal.signal]}`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold">{signal.symbol}</span>
-                      <span className="text-xs bg-black/30 px-2 py-0.5 rounded">
-                        {signal.signal.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <ul className="text-xs space-y-1 mb-2">
-                    {signal.reasons.map((reason, i) => (
-                      <li key={i} className="flex items-center gap-1.5 opacity-80">
-                        <div className="w-1 h-1 rounded-full bg-current" />
-                        {reason}
-                      </li>
-                    ))}
-                  </ul>
-                </motion.div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </GlassCard>
-  );
-});
-
 function TradeContent() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -352,36 +268,19 @@ function TradeContent() {
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
 
-  const [aiSignals, setAiSignals] = useState<AISignal[]>([]);
-
   const portfolioValue = useMemo(() => {
     return openTrades.reduce((acc, trade) => {
-      const market = markets.find(m => m.symbol === trade.symbol);
-      const currentPrice = market?.price || 0;
-      const tradeLeverage = trade.leverage || 1;
-      const value = trade.type === 'buy' 
-        ? trade.quantity * currentPrice * tradeLeverage
-        : trade.quantity * trade.entry_price * tradeLeverage;
-      return acc + value;
+      return acc + (trade.unrealized_pl || 0);
     }, balance);
-  }, [openTrades, balance, markets]);
+  }, [openTrades, balance]);
 
   const todaysPL = useMemo(() => {
-    return openTrades.reduce((acc, trade) => {
-      const market = markets.find(m => m.symbol === trade.symbol);
-      const currentPrice = market?.price || 0;
-      const tradeLeverage = trade.leverage || 1;
-      const pl = trade.type === 'buy'
-        ? (currentPrice - trade.entry_price) * trade.quantity * tradeLeverage
-        : (trade.entry_price - currentPrice) * trade.quantity * tradeLeverage;
-      return acc + pl;
-    }, 0);
-  }, [openTrades, markets]);
+    return openTrades.reduce((acc, trade) => acc + (trade.unrealized_pl || 0), 0);
+  }, [openTrades]);
 
   const totalExposure = useMemo(() => {
     return openTrades.reduce((acc, trade) => {
-      const tradeLeverage = trade.leverage || 1;
-      return acc + (trade.quantity * trade.entry_price * tradeLeverage);
+      return acc + (trade.quantity * trade.entry_price * (trade.leverage || 1));
     }, 0);
   }, [openTrades]);
 
@@ -410,8 +309,7 @@ function TradeContent() {
   const initializeMarkets = async () => {
     const allMarkets: Market[] = [];
     
-    // Crypto markets
-    const cryptos = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
+    const cryptos = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT'];
     cryptos.forEach(symbol => {
       allMarkets.push({
         symbol,
@@ -423,7 +321,6 @@ function TradeContent() {
       });
     });
     
-    // Forex
     FOREX_PAIRS.forEach(pair => {
       allMarkets.push({
         symbol: pair.symbol,
@@ -435,7 +332,6 @@ function TradeContent() {
       });
     });
     
-    // Stocks
     STOCK_SYMBOLS.forEach(stock => {
       allMarkets.push({
         symbol: stock.symbol,
@@ -448,44 +344,6 @@ function TradeContent() {
     });
     
     setMarkets(allMarkets);
-    generateAISignals(allMarkets);
-  };
-
-  const generateAISignals = (markets: Market[]) => {
-    const signals = markets.map(market => {
-      const change = market.change24h;
-      let signal: AISignal['signal'] = 'NEUTRAL';
-      let confidence = 0.6;
-      const reasons: string[] = [];
-
-      if (change > 3) {
-        signal = 'STRONG_BUY';
-        confidence = 0.85;
-        reasons.push('Strong uptrend momentum');
-      } else if (change > 1) {
-        signal = 'BUY';
-        confidence = 0.72;
-        reasons.push('Positive momentum');
-      } else if (change < -3) {
-        signal = 'STRONG_SELL';
-        confidence = 0.85;
-        reasons.push('Strong downtrend');
-      } else if (change < -1) {
-        signal = 'SELL';
-        confidence = 0.68;
-        reasons.push('Negative momentum');
-      }
-
-      return {
-        symbol: market.symbol,
-        signal,
-        confidence,
-        reasons: reasons.length > 0 ? reasons : ['Neutral conditions'],
-        suggestedStopLoss: market.price * (signal.includes('BUY') ? 0.97 : 1.03),
-        suggestedTakeProfit: market.price * (signal.includes('BUY') ? 1.05 : 0.95),
-      };
-    });
-    setAiSignals(signals);
   };
 
   const fetchBalance = async (userId: string) => {
@@ -507,25 +365,43 @@ function TradeContent() {
     setOpenTrades(data || []);
   };
 
+  // Update market prices and trade prices in real-time
   useEffect(() => {
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
+      // Update market prices
       setMarkets(prev => prev.map(market => {
         const priceChange = (Math.random() - 0.5) * market.price * 0.002;
-        const changePercent = (priceChange / market.price) * 100;
+        const newPrice = Math.max(market.price + priceChange, 0.01);
         return {
           ...market,
-          price: Math.max(market.price + priceChange, 0.01),
-          change24h: market.change24h + changePercent * 0.1,
+          price: newPrice,
+          change24h: market.change24h + ((priceChange / market.price) * 100) * 0.1,
         };
       }));
+
+      // Update trade current prices in database (triggers SL/TP check)
+      if (user && openTrades.length > 0) {
+        for (const trade of openTrades) {
+          const market = markets.find(m => m.symbol === trade.symbol);
+          if (market) {
+            await supabase.rpc('update_trade_price', {
+              trade_id: trade.id,
+              new_price: market.price
+            });
+          }
+        }
+        // Refresh trades to see if any were closed by SL/TP
+        fetchOpenTrades(user.id);
+        fetchBalance(user.id);
+      }
     }, 3000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [user, openTrades, markets]);
 
   const handleTrade = async (side: 'buy' | 'sell') => {
     if (!tradeAmount || parseFloat(tradeAmount) <= 0) {
-      alert('Invalid amount');
+      alert('❌ Invalid amount');
       return;
     }
     if (!user) return;
@@ -533,36 +409,27 @@ function TradeContent() {
     const market = markets.find(m => m.symbol === selectedSymbol);
     if (!market) return;
 
-    const tradeValue = parseFloat(tradeAmount) * market.price;
-    const requiredMargin = tradeValue / leverage;
-
-    if (requiredMargin > balance) {
-      alert('Insufficient balance');
-      return;
-    }
-
     setLoading(true);
     try {
-      await supabase.from('trades').insert({
-        user_id: user.id,
-        symbol: selectedSymbol,
-        type: side,
-        quantity: parseFloat(tradeAmount),
-        entry_price: market.price,
-        status: 'open',
-        leverage,
-        stop_loss: stopLoss ? parseFloat(stopLoss) : null,
-        take_profit: takeProfit ? parseFloat(takeProfit) : null,
+      const { data, error } = await supabase.rpc('open_trade', {
+        p_user_id: user.id,
+        p_symbol: selectedSymbol,
+        p_type: side,
+        p_quantity: parseFloat(tradeAmount),
+        p_entry_price: market.price,
+        p_leverage: leverage,
+        p_stop_loss: stopLoss ? parseFloat(stopLoss) : null,
+        p_take_profit: takeProfit ? parseFloat(takeProfit) : null,
       });
 
-      // Deduct margin from balance
-      await supabase.rpc('adjust_balance', {
-        user_id: user.id,
-        amount: -requiredMargin,
-        reason: `${side.toUpperCase()} ${tradeAmount} ${selectedSymbol}`
-      });
+      if (error) throw error;
 
-      alert(`Trade opened! ${side.toUpperCase()} ${tradeAmount} ${selectedSymbol}`);
+      if (!data.success) {
+        alert(`❌ ${data.error}\nRequired: $${data.required.toFixed(2)}\nAvailable: $${data.available.toFixed(2)}`);
+        return;
+      }
+
+      alert(`✅ Trade opened!\n${side.toUpperCase()} ${tradeAmount} ${selectedSymbol}\nMargin used: $${data.margin_used.toFixed(2)}`);
       setTradeAmount('');
       setTradePercentage(0);
       setStopLoss('');
@@ -570,7 +437,7 @@ function TradeContent() {
       fetchBalance(user.id);
       fetchOpenTrades(user.id);
     } catch (error: any) {
-      alert('Trade failed: ' + error.message);
+      alert('❌ Trade failed: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -582,29 +449,27 @@ function TradeContent() {
     setLoading(true);
     try {
       const market = markets.find(m => m.symbol === trade.symbol);
-      const currentPrice = market?.price || 0;
-      const profitLoss = trade.type === 'buy'
-        ? (currentPrice - trade.entry_price) * trade.quantity * (trade.leverage || 1)
-        : (trade.entry_price - currentPrice) * trade.quantity * (trade.leverage || 1);
+      const currentPrice = market?.price || trade.current_price;
 
-      await supabase.from('trades').update({
-        status: 'closed',
-        profit_loss: profitLoss,
-      }).eq('id', tradeId);
-
-      // Return margin + P/L to balance
-      const marginReturn = trade.quantity * trade.entry_price;
-      await supabase.rpc('adjust_balance', {
-        user_id: user.id,
-        amount: marginReturn + profitLoss,
-        reason: `Close ${trade.type.toUpperCase()} ${trade.symbol}`
+      const { data, error } = await supabase.rpc('close_trade', {
+        p_trade_id: tradeId,
+        p_current_price: currentPrice
       });
 
-      alert(`Trade closed! P/L: $${profitLoss.toFixed(2)}`);
+      if (error) throw error;
+
+      if (!data.success) {
+        alert(`❌ ${data.error}`);
+        return;
+      }
+
+      const pl = data.profit_loss;
+      alert(`✅ Trade closed!\nP/L: ${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}\nMargin returned: $${data.margin_returned.toFixed(2)}\nTotal: $${data.total_returned.toFixed(2)}`);
+      
       fetchBalance(user.id);
       fetchOpenTrades(user.id);
     } catch (error: any) {
-      alert('Close failed: ' + error.message);
+      alert('❌ Close failed: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -617,6 +482,22 @@ function TradeContent() {
     const amount = maxAmount * (percentage / 100);
     setTradeAmount(amount.toFixed(4));
     setTradePercentage(percentage);
+  };
+
+  const suggestStopLoss = () => {
+    const market = markets.find(m => m.symbol === selectedSymbol);
+    if (!market) return;
+    const sl = market.price * 0.97; // 3% below current price
+    setStopLoss(sl.toFixed(2));
+    alert(`✅ Stop Loss set to $${sl.toFixed(2)} (3% protection)`);
+  };
+
+  const suggestTakeProfit = () => {
+    const market = markets.find(m => m.symbol === selectedSymbol);
+    if (!market) return;
+    const tp = market.price * 1.05; // 5% above current price
+    setTakeProfit(tp.toFixed(2));
+    alert(`✅ Take Profit set to $${tp.toFixed(2)} (5% target)`);
   };
 
   if (!user) {
@@ -683,8 +564,6 @@ function TradeContent() {
                 </div>
               </GlassCard>
 
-              <AITradingSignals signals={aiSignals} />
-
               <GlassCard delay={200} glow>
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-xl font-bold text-white">Open Positions</h3>
@@ -704,58 +583,79 @@ function TradeContent() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="hidden md:grid grid-cols-12 gap-3 text-xs font-semibold text-zinc-400 uppercase tracking-wider px-4 py-3 border-b border-white/10">
-                      <div className="col-span-2">Symbol</div>
-                      <div className="col-span-1 text-center">Type</div>
-                      <div className="col-span-1 text-center">Leverage</div>
-                      <div className="col-span-2 text-right">Entry</div>
-                      <div className="col-span-2 text-right">Current</div>
-                      <div className="col-span-1 text-right">Quantity</div>
-                      <div className="col-span-2 text-right">P/L</div>
-                      <div className="col-span-1 text-right"></div>
-                    </div>
                     <AnimatePresence>
                       {openTrades.map((trade, idx) => {
-                        const market = markets.find(m => m.symbol === trade.symbol);
-                        const currentPrice = market?.price || 0;
-                        const tradeLeverage = trade.leverage || 1;
-                        const unrealizedPL = trade.type === 'buy' ? (currentPrice - trade.entry_price) * trade.quantity * tradeLeverage : (trade.entry_price - currentPrice) * trade.quantity * tradeLeverage;
+                        const unrealizedPL = trade.unrealized_pl || 0;
                         const plPercentage = (unrealizedPL / (trade.quantity * trade.entry_price)) * 100;
 
                         return (
-                          <motion.div key={trade.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} transition={{ duration: 0.3, delay: idx * 0.05 }} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center p-4 rounded-xl border border-white/10 hover:border-emerald-500/30 hover:bg-white/[0.02] transition-all duration-200">
-                            <div className="col-span-1 md:col-span-2">
-                              <div className="font-bold text-white text-lg">{trade.symbol}</div>
-                              <div className="text-xs text-zinc-500">{new Date(trade.created_at).toLocaleDateString()}</div>
-                            </div>
-                            <div className="col-span-1 md:text-center">
-                              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-bold ${trade.type === 'buy' ? 'bg-white/[0.08] text-white border border-white/20' : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50'}`}>
-                                {trade.type === 'buy' ? '↑' : '↓'} {trade.type.toUpperCase()}
-                              </span>
-                            </div>
-                            <div className="col-span-1 md:text-center">
-                              <div className="flex items-center justify-start md:justify-center gap-1">
-                                <Zap className="h-3 w-3 text-white" />
-                                <span className="font-bold text-white">{tradeLeverage}x</span>
+                          <motion.div key={trade.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -100 }} transition={{ duration: 0.3, delay: idx * 0.05 }} className="p-4 rounded-xl border border-white/10 hover:border-emerald-500/30 hover:bg-white/[0.02] transition-all duration-200">
+                            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <span className="font-bold text-white text-xl">{trade.symbol}</span>
+                                  <span className={`px-2 py-1 rounded text-xs font-bold ${trade.type === 'buy' ? 'bg-white/10 text-white' : 'bg-zinc-800/50 text-zinc-400'}`}>
+                                    {trade.type.toUpperCase()}
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <Zap className="h-3 w-3 text-white" />
+                                    <span className="text-sm font-bold text-white">{trade.leverage || 1}x</span>
+                                  </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                  <div>
+                                    <p className="text-zinc-500 text-xs">Entry</p>
+                                    <p className="font-mono font-bold text-white">${trade.entry_price.toFixed(2)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-zinc-500 text-xs">Current</p>
+                                    <p className="font-mono font-bold text-white">${trade.current_price.toFixed(2)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-zinc-500 text-xs">Quantity</p>
+                                    <p className="font-mono text-zinc-300">{trade.quantity.toFixed(4)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-zinc-500 text-xs">Margin</p>
+                                    <p className="font-mono text-zinc-300">${(trade.quantity * trade.entry_price).toFixed(2)}</p>
+                                  </div>
+                                </div>
+
+                                {(trade.stop_loss || trade.take_profit) && (
+                                  <div className="flex gap-3 mt-3 text-xs">
+                                    {trade.stop_loss && (
+                                      <div className="flex items-center gap-1 px-2 py-1 bg-red-500/10 border border-red-500/30 rounded text-red-400">
+                                        <span>SL: ${trade.stop_loss.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                    {trade.take_profit && (
+                                      <div className="flex items-center gap-1 px-2 py-1 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-400">
+                                        <span>TP: ${trade.take_profit.toFixed(2)}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                               </div>
-                            </div>
-                            <div className="col-span-1 md:col-span-2 md:text-right">
-                              <div className="text-white font-mono font-semibold">$<NumberAnimation value={trade.entry_price} format={(v) => v.toFixed(2)} /></div>
-                            </div>
-                            <div className="col-span-1 md:col-span-2 md:text-right">
-                              <div className="text-white font-mono font-semibold">$<NumberAnimation value={currentPrice} format={(v) => v.toFixed(2)} /></div>
-                            </div>
-                            <div className="col-span-1 md:text-right">
-                              <div className="text-zinc-300 font-mono"><NumberAnimation value={trade.quantity} format={(v) => v.toFixed(4)} /></div>
-                            </div>
-                            <div className="col-span-1 md:col-span-2 md:text-right">
-                              <div className={`inline-flex flex-col items-end px-3 py-2 rounded-lg ${unrealizedPL >= 0 ? 'bg-emerald-900/30 border border-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}>
-                                <span className={`text-lg font-bold ${unrealizedPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{unrealizedPL >= 0 ? '+' : ''}<NumberAnimation value={unrealizedPL} format={(v) => v.toFixed(2)} /></span>
-                                <span className={`text-xs ${unrealizedPL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>{plPercentage >= 0 ? '+' : ''}{plPercentage.toFixed(2)}%</span>
+
+                              <div className="flex items-center gap-3">
+                                <div className={`px-4 py-3 rounded-lg ${unrealizedPL >= 0 ? 'bg-emerald-900/30 border border-emerald-500/30' : 'bg-red-900/30 border border-red-500/30'}`}>
+                                  <p className="text-xs text-zinc-400 mb-1">Unrealized P/L</p>
+                                  <p className={`text-2xl font-bold ${unrealizedPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                    {unrealizedPL >= 0 ? '+' : ''}${unrealizedPL.toFixed(2)}
+                                  </p>
+                                  <p className={`text-xs ${unrealizedPL >= 0 ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                                    {plPercentage >= 0 ? '+' : ''}{plPercentage.toFixed(2)}%
+                                  </p>
+                                </div>
+                                <button 
+                                  onClick={() => handleCloseTrade(trade.id, trade)} 
+                                  disabled={loading} 
+                                  className="px-6 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold rounded-lg transition-all duration-200 shadow-lg shadow-red-500/20 disabled:opacity-50"
+                                >
+                                  Close
+                                </button>
                               </div>
-                            </div>
-                            <div className="col-span-1 md:text-right">
-                              <button onClick={() => handleCloseTrade(trade.id, trade)} disabled={loading} className="w-full md:w-auto px-4 py-2 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white text-sm font-bold rounded-lg transition-all duration-200 shadow-lg shadow-red-500/20 disabled:opacity-50">Close</button>
                             </div>
                           </motion.div>
                         );
@@ -779,7 +679,14 @@ function TradeContent() {
                   <div className="space-y-2">
                     <label className="text-sm text-zinc-300 font-medium">Quantity</label>
                     <div className="relative">
-                      <input type="number" step="0.0001" placeholder="0.00" value={tradeAmount} onChange={e => { setTradeAmount(e.target.value); setTradePercentage(0); }} className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all" />
+                      <input 
+                        type="number" 
+                        step="0.0001" 
+                        placeholder="0.00" 
+                        value={tradeAmount} 
+                        onChange={e => { setTradeAmount(e.target.value); setTradePercentage(0); }} 
+                        className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all" 
+                      />
                       <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-medium">{selectedSymbol.split('USDT')[0] || selectedSymbol}</div>
                     </div>
                   </div>
@@ -791,13 +698,27 @@ function TradeContent() {
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm text-zinc-300 font-medium">Stop Loss (Optional)</label>
-                    <input type="number" step="0.01" placeholder="0.00" value={stopLoss} onChange={e => setStopLoss(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-white/30 focus:ring-2 focus:ring-white/10 transition-all" />
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-zinc-300 font-medium">Stop Loss</label>
+                      <button onClick={suggestStopLoss} className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1">
+                        <Target className="h-3 w-3" />
+                        Suggest (3%)
+                      </button>
+                    </div>
+                    <input type="number" step="0.01" placeholder="0.00" value={stopLoss} onChange={e => setStopLoss(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-red-500/50 focus:ring-2 focus:ring-red-500/20 transition-all" />
+                    <p className="text-xs text-zinc-500">Auto-closes to limit losses</p>
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm text-zinc-300 font-medium">Take Profit (Optional)</label>
-                    <input type="number" step="0.01" placeholder="0.00" value={takeProfit} onChange={e => setTakeProfit(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-white/30 focus:ring-2 focus:ring-white/10 transition-all" />
+                    <div className="flex items-center justify-between">
+                      <label className="text-sm text-zinc-300 font-medium">Take Profit</label>
+                      <button onClick={suggestTakeProfit} className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
+                        <Target className="h-3 w-3" />
+                        Suggest (5%)
+                      </button>
+                    </div>
+                    <input type="number" step="0.01" placeholder="0.00" value={takeProfit} onChange={e => setTakeProfit(e.target.value)} className="w-full bg-zinc-900/50 border border-zinc-700/50 rounded-lg px-4 py-3 text-white text-lg font-mono placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-all" />
+                    <p className="text-xs text-zinc-500">Auto-closes to secure profits</p>
                   </div>
 
                   <div className="space-y-2 p-4 bg-zinc-900/30 rounded-lg border border-zinc-800/50">
