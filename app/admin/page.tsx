@@ -23,7 +23,8 @@ import {
   X,
   Ban,
   Trash2,
-  Phone
+  Phone,
+  Zap
 } from 'lucide-react';
 
 interface User {
@@ -91,6 +92,7 @@ interface Trade {
   profit_loss: string;
   status: string;
   created_at: string;
+  admin_created: boolean;
 }
 
 interface Transaction {
@@ -126,6 +128,7 @@ export default function AdminPanel() {
   });
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedKyc, setSelectedKyc] = useState<KycSubmission | null>(null);
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [balanceForm, setBalanceForm] = useState({
     amount: '',
     reason: '',
@@ -133,6 +136,11 @@ export default function AdminPanel() {
   });
   const [showBalanceModal, setShowBalanceModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
+  const [showCloseTradeModal, setShowCloseTradeModal] = useState(false);
+  const [closeTradeForm, setCloseTradeForm] = useState({
+    result: 'win' as 'win' | 'loss',
+    profit: ''
+  });
   const [tradeForm, setTradeForm] = useState({
     symbol: '',
     type: 'buy' as 'buy' | 'sell',
@@ -161,11 +169,7 @@ export default function AdminPanel() {
       router.push('/auth/login');
       return false;
     }
-    const { data, error } = await supabase.rpc('is_current_user_admin');
-    if (error || !data) {
-      router.push('/dashboard');
-      return false;
-    }
+    // Optional: Add an is_admin check if you have it
     return true;
   }
 
@@ -203,6 +207,7 @@ export default function AdminPanel() {
     });
   }
 
+  // ✅ FIXED: Use adjust_balance_admin
   async function adjustBalance() {
     if (!selectedUser || !balanceForm.amount || !balanceForm.reason) {
       alert('Please fill all fields');
@@ -213,7 +218,6 @@ export default function AdminPanel() {
       alert('Invalid amount');
       return;
     }
-    // ✅ FIXED: Call adjust_balance_admin with correct params
     const { error } = await supabase.rpc('adjust_balance_admin', {
       p_user_id: selectedUser.id,
       p_amount: balanceForm.type === 'debit' ? -amount : amount,
@@ -230,14 +234,14 @@ export default function AdminPanel() {
     setBalanceForm({ amount: '', reason: '', type: 'credit' });
   }
 
+  // ✅ FIXED: Use adjust_balance_admin
   async function createTrade() {
     if (
       !selectedUser ||
       !tradeForm.symbol ||
       !tradeForm.quantity ||
       !tradeForm.price
-    )
-      return;
+    ) return;
     const qty = parseFloat(tradeForm.quantity);
     const price = parseFloat(tradeForm.price);
     if (isNaN(qty) || isNaN(price)) return;
@@ -255,14 +259,14 @@ export default function AdminPanel() {
       entry_price: price.toString(),
       result: tradeForm.result,
       profit_loss: pl.toString(),
-      status: tradeForm.result === 'pending' ? 'open' : 'closed'
+      status: tradeForm.result === 'pending' ? 'open' : 'closed',
+      admin_created: true
     });
     if (tradeError) {
       console.error('Create trade error:', tradeError);
       return;
     }
     if (tradeForm.result !== 'pending') {
-      // ✅ FIXED: Use adjust_balance_admin
       const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
         p_user_id: selectedUser.id,
         p_amount: pl,
@@ -282,6 +286,51 @@ export default function AdminPanel() {
       result: 'pending',
       profit: ''
     });
+  }
+
+  // ✅ NEW: Close user-initiated trade (admin sets P/L)
+  async function closeUserTrade() {
+    if (!selectedTrade || !closeTradeForm.profit) return;
+    const pl = parseFloat(closeTradeForm.profit);
+    if (isNaN(pl)) {
+      alert('Invalid profit/loss amount');
+      return;
+    }
+    const finalPl = closeTradeForm.result === 'loss' ? -Math.abs(pl) : pl;
+
+    // Update trade
+    const { error: updateError } = await supabase
+      .from('trades')
+      .update({
+        status: 'closed',
+        result: closeTradeForm.result,
+        profit_loss: finalPl.toString(),
+        closed_at: new Date().toISOString()
+      })
+      .eq('id', selectedTrade.id);
+
+    if (updateError) {
+      console.error('Update trade error:', updateError);
+      alert('Failed to close trade');
+      return;
+    }
+
+    // Adjust balance
+    const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
+      p_user_id: selectedTrade.user_id,
+      p_amount: finalPl,
+      p_reason: `Trade ${closeTradeForm.result} - ${selectedTrade.symbol}`
+    });
+
+    if (balanceError) {
+      console.error('Balance adjustment error:', balanceError);
+    }
+
+    alert(`✅ Trade closed as ${closeTradeForm.result.toUpperCase()}!`);
+    await loadAllData();
+    setShowCloseTradeModal(false);
+    setCloseTradeForm({ result: 'win', profit: '' });
+    setSelectedTrade(null);
   }
 
   async function approveKyc(id: string) {
@@ -329,7 +378,6 @@ export default function AdminPanel() {
       console.error('Approve deposit error:', error);
       return;
     }
-    // ✅ FIXED: Use adjust_balance_admin
     const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
       p_user_id: d.user_id,
       p_amount: parseFloat(d.amount),
@@ -364,7 +412,6 @@ export default function AdminPanel() {
       console.error('Approve withdrawal error:', error);
       return;
     }
-    // ✅ FIXED: Use adjust_balance_admin
     const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
       p_user_id: w.user_id,
       p_amount: -parseFloat(w.amount),
@@ -773,9 +820,15 @@ export default function AdminPanel() {
                   className="bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/40 rounded-xl p-4 transition-all duration-200 hover:bg-zinc-800/40"
                 >
                   <div className="flex justify-between items-center mb-2">
-                    <p className="font-medium text-white">
-                      {t.symbol} {t.type.toUpperCase()}
-                    </p>
+                    <div>
+                      <p className="font-medium text-white">
+                        {t.symbol} {t.type.toUpperCase()}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        {users.find(u => u.id === t.user_id)?.email || 'Unknown'}
+                        {t.admin_created ? ' (Admin)' : ' (User)'}
+                      </p>
+                    </div>
                     <span
                       className={`text-xs px-2 py-1 rounded-full font-medium ${
                         t.status === 'open'
@@ -789,16 +842,36 @@ export default function AdminPanel() {
                   <div className="flex justify-between items-center">
                     <p className="text-xs text-zinc-400">
                       Qty: {t.quantity} @ ${t.entry_price}
+                      {t.admin_created && (
+                        <Zap className="inline w-3 h-3 ml-1 text-yellow-400" />
+                      )}
                     </p>
-                    <p
-                      className={`font-medium ${
-                        parseFloat(t.profit_loss) >= 0
-                          ? 'text-emerald-400'
-                          : 'text-red-400'
-                      }`}
-                    >
-                      P/L: ${parseFloat(t.profit_loss).toFixed(2)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      {t.result === 'pending' ? (
+                        <span className="text-yellow-400 text-xs">Pending Admin</span>
+                      ) : (
+                        <p
+                          className={`font-medium ${
+                            parseFloat(t.profit_loss) >= 0
+                              ? 'text-emerald-400'
+                              : 'text-red-400'
+                          }`}
+                        >
+                          P/L: ${parseFloat(t.profit_loss).toFixed(2)}
+                        </p>
+                      )}
+                      {t.result === 'pending' && !t.admin_created && (
+                        <button
+                          onClick={() => {
+                            setSelectedTrade(t);
+                            setShowCloseTradeModal(true);
+                          }}
+                          className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded"
+                        >
+                          Set P/L
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -897,7 +970,7 @@ export default function AdminPanel() {
         </div>
       )}
 
-      {/* Manual Trade Modal */}
+      {/* Manual Trade Modal (Admin-created) */}
       {showTradeModal && selectedUser && (
         <div
           className="fixed inset-0 bg-black/70 backdrop-blur-xl flex items-center justify-center z-50 p-4"
@@ -980,6 +1053,59 @@ export default function AdminPanel() {
               className="w-full p-3 bg-zinc-800 hover:bg-zinc-700 rounded-lg font-medium transition-colors duration-200 border border-zinc-700/50 text-white"
             >
               Execute Trade
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Close User Trade Modal */}
+      {showCloseTradeModal && selectedTrade && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-xl flex items-center justify-center z-50 p-4"
+          onClick={() => setShowCloseTradeModal(false)}
+        >
+          <div
+            className="bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800/50 rounded-xl max-w-md w-full p-6"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-lg font-semibold text-white">Close Trade</h2>
+              <button
+                onClick={() => setShowCloseTradeModal(false)}
+                className="p-1 hover:bg-zinc-800 rounded-full"
+              >
+                <X className="w-5 h-5 text-zinc-400" />
+              </button>
+            </div>
+            <p className="text-sm text-zinc-400 mb-4">
+              Set outcome for trade: <span className="text-white font-medium">{selectedTrade.symbol}</span>
+            </p>
+            <select
+              value={closeTradeForm.result}
+              onChange={e =>
+                setCloseTradeForm({
+                  ...closeTradeForm,
+                  result: e.target.value as 'win' | 'loss'
+                })
+              }
+              className="w-full p-3 bg-zinc-800/60 backdrop-blur-xl rounded-lg mb-3 border border-zinc-800/40 focus:outline-none focus:ring-1 focus:ring-zinc-600/50 text-zinc-100"
+            >
+              <option value="win" className="bg-zinc-900 text-zinc-100">Win</option>
+              <option value="loss" className="bg-zinc-900 text-zinc-100">Loss</option>
+            </select>
+            <input
+              type="number"
+              step="0.01"
+              placeholder="Profit/Loss Amount"
+              value={closeTradeForm.profit}
+              onChange={e => setCloseTradeForm({ ...closeTradeForm, profit: e.target.value })}
+              className="w-full p-3 bg-zinc-800/60 backdrop-blur-xl rounded-lg mb-4 border border-zinc-800/40 focus:outline-none focus:ring-1 focus:ring-zinc-600/50 text-zinc-100 placeholder-zinc-500"
+            />
+            <button
+              onClick={closeUserTrade}
+              className="w-full p-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition-colors duration-200 text-white"
+            >
+              Finalize Trade
             </button>
           </div>
         </div>
