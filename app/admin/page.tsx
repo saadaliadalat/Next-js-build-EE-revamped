@@ -1,6 +1,5 @@
 // app/admin/page.tsx
 "use client";
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
@@ -214,10 +213,11 @@ export default function AdminPanel() {
       alert('Invalid amount');
       return;
     }
-    const { error } = await supabase.rpc('adjust_balance', {
-      user_id: selectedUser.id,
-      amount: balanceForm.type === 'debit' ? -amount : amount,
-      reason: balanceForm.reason
+    // ✅ FIXED: Call adjust_balance_admin with correct params
+    const { error } = await supabase.rpc('adjust_balance_admin', {
+      p_user_id: selectedUser.id,
+      p_amount: balanceForm.type === 'debit' ? -amount : amount,
+      p_reason: balanceForm.reason
     });
     if (error) {
       console.error('Adjust balance error:', error);
@@ -262,10 +262,11 @@ export default function AdminPanel() {
       return;
     }
     if (tradeForm.result !== 'pending') {
-      const { error: balanceError } = await supabase.rpc('adjust_balance', {
-        user_id: selectedUser.id,
-        amount: pl,
-        reason: `Trade ${tradeForm.result}`
+      // ✅ FIXED: Use adjust_balance_admin
+      const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
+        p_user_id: selectedUser.id,
+        p_amount: pl,
+        p_reason: `Trade ${tradeForm.result} - ${tradeForm.symbol}`
       });
       if (balanceError) {
         console.error('Adjust balance after trade error:', balanceError);
@@ -328,10 +329,11 @@ export default function AdminPanel() {
       console.error('Approve deposit error:', error);
       return;
     }
-    const { error: balanceError } = await supabase.rpc('adjust_balance', {
-      user_id: d.user_id,
-      amount: parseFloat(d.amount),
-      reason: 'Deposit'
+    // ✅ FIXED: Use adjust_balance_admin
+    const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
+      p_user_id: d.user_id,
+      p_amount: parseFloat(d.amount),
+      p_reason: 'Deposit'
     });
     if (balanceError) {
       console.error('Adjust balance after deposit error:', balanceError);
@@ -362,10 +364,11 @@ export default function AdminPanel() {
       console.error('Approve withdrawal error:', error);
       return;
     }
-    const { error: balanceError } = await supabase.rpc('adjust_balance', {
-      user_id: w.user_id,
-      amount: -parseFloat(w.amount),
-      reason: 'Withdrawal'
+    // ✅ FIXED: Use adjust_balance_admin
+    const { error: balanceError } = await supabase.rpc('adjust_balance_admin', {
+      p_user_id: w.user_id,
+      p_amount: -parseFloat(w.amount),
+      p_reason: 'Withdrawal'
     });
     if (balanceError) {
       console.error('Adjust balance after withdrawal error:', balanceError);
@@ -387,15 +390,12 @@ export default function AdminPanel() {
 
   async function banUser(userId: string) {
     if (!confirm('⚠️ PERMANENT BAN: This user will be blocked from logging in. Continue?')) return;
-    
     try {
       const { error: updateError } = await supabase
         .from('users')
         .update({ banned: true, is_approved: false })
         .eq('id', userId);
-
       if (updateError) throw updateError;
-
       alert('✅ User permanently banned');
       await loadAllData();
     } catch (error: any) {
@@ -406,14 +406,12 @@ export default function AdminPanel() {
 
   async function deleteUser(userId: string) {
     if (!confirm('⚠️ PERMANENT DELETE: This will delete all user data. Continue?')) return;
-    
     await supabase.from('kyc_submissions').delete().eq('user_id', userId);
     await supabase.from('deposits').delete().eq('user_id', userId);
     await supabase.from('withdrawals').delete().eq('user_id', userId);
     await supabase.from('trades').delete().eq('user_id', userId);
     await supabase.from('transactions').delete().eq('user_id', userId);
     await supabase.from('balances').delete().eq('user_id', userId);
-    
     const { error } = await supabase.from('users').delete().eq('id', userId);
     if (error) {
       console.error('Delete user error:', error);
@@ -501,7 +499,6 @@ export default function AdminPanel() {
               <RefreshCw className="w-4 h-4 text-zinc-300" />
             </button>
           </div>
-
           {activeTab === 'overview' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[
@@ -525,7 +522,6 @@ export default function AdminPanel() {
               ))}
             </div>
           )}
-
           {activeTab === 'users' && (
             <div>
               <div className="relative mb-4">
@@ -623,7 +619,6 @@ export default function AdminPanel() {
               </div>
             </div>
           )}
-
           {activeTab === 'kyc' && (
             <div className="space-y-3">
               {kyc.map(k => (
@@ -673,7 +668,6 @@ export default function AdminPanel() {
               ))}
             </div>
           )}
-
           {activeTab === 'deposits' && (
             <div className="space-y-3">
               {deposits.map(d => (
@@ -728,7 +722,6 @@ export default function AdminPanel() {
               ))}
             </div>
           )}
-
           {activeTab === 'withdrawals' && (
             <div className="space-y-3">
               {withdrawals.map(w => (
@@ -772,7 +765,6 @@ export default function AdminPanel() {
               ))}
             </div>
           )}
-
           {activeTab === 'trades' && (
             <div className="space-y-3">
               {trades.map(t => (
@@ -812,7 +804,6 @@ export default function AdminPanel() {
               ))}
             </div>
           )}
-
           {activeTab === 'ledger' && (
             <div className="space-y-3">
               {transactions.map(tx => (
@@ -1013,7 +1004,6 @@ export default function AdminPanel() {
                 <X className="w-5 h-5 text-zinc-400" />
               </button>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
               <div>
                 <p className="text-xs text-zinc-500">Full Name</p>
@@ -1032,14 +1022,12 @@ export default function AdminPanel() {
                 <p className="font-medium text-white">{selectedKyc.nationality}</p>
               </div>
             </div>
-
             <div className="mb-6">
               <p className="text-xs text-zinc-500">Address</p>
               <p className="font-medium text-white">
                 {selectedKyc.address}, {selectedKyc.city}, {selectedKyc.state} {selectedKyc.zip_code}
               </p>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <a
                 href={supabase.storage.from('kyc-documents').getPublicUrl(selectedKyc.id_document_url).data.publicUrl}
@@ -1069,7 +1057,6 @@ export default function AdminPanel() {
                 <span className="font-medium text-zinc-200">Selfie</span>
               </a>
             </div>
-
             <div className="flex gap-3 mt-8">
               <button
                 onClick={() => {
@@ -1116,7 +1103,6 @@ export default function AdminPanel() {
                 <X className="w-5 h-5 text-zinc-400" />
               </button>
             </div>
-
             <div className="p-6 space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1160,7 +1146,6 @@ export default function AdminPanel() {
                   </p>
                 </div>
               </div>
-
               <div>
                 <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
                   <FileText className="w-5 h-5 text-blue-400" />
